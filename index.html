@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Alaska Aviation Incidents</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Alaska Aviation Incidents</h1>
+        <p class="subtitle">Explore a sample of aviation incidents with search, filters, and sorting.</p>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="controls">
+        <div class="control">
+          <label for="search">Search</label>
+          <input id="search" type="search" placeholder="Search narrative, location, or operator" />
+        </div>
+        <div class="control">
+          <label for="stateFilter">State</label>
+          <select id="stateFilter">
+            <option value="">All states</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="eventFilter">Event type</label>
+          <select id="eventFilter">
+            <option value="">All event types</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="phaseFilter">Phase</label>
+          <select id="phaseFilter">
+            <option value="">All phases</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="sortOrder">Sort</label>
+          <select id="sortOrder">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+          </select>
+        </div>
+        <div class="control download">
+          <a class="button" href="./data/incidents.csv" download>Download CSV</a>
+        </div>
+      </section>
+
+      <section class="status">
+        <div id="statusMessage">Loading data…</div>
+        <div id="rowCount">Rows detected: 0</div>
+      </section>
+
+      <section id="results" class="results"></section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
