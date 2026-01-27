@@ -1,63 +1,61 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Alaska Aviation Incidents</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <header class="site-header">
-      <div class="container">
-        <h1>Alaska Aviation Incidents</h1>
-        <p class="subtitle">Explore a sample of aviation incidents with search, filters, and sorting.</p>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Alaska Aviation Incidents</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <h1>Alaska Aviation Incidents</h1>
+      <p class="sub">Search & filter your <code>data/incidents.csv</code> (client-side, no build, works on GitHub Pages)</p>
+
+      <div class="bar">
+        <input id="q" type="search" placeholder="Search narrative, city, airport, tail number, facility…" />
+
+        <select id="state">
+          <option value="">State (all)</option>
+        </select>
+
+        <select id="eventType">
+          <option value="">Event type (all)</option>
+        </select>
+
+        <select id="phase">
+          <option value="">Phase (all)</option>
+        </select>
+
+        <select id="sort">
+          <option value="newest">Sort: Newest</option>
+          <option value="oldest">Sort: Oldest</option>
+          <option value="city">Sort: City (A–Z)</option>
+          <option value="state">Sort: State (A–Z)</option>
+        </select>
+
+        <button id="download" class="btn">Download CSV</button>
       </div>
-    </header>
 
-    <main class="container">
-      <section class="controls">
-        <div class="control">
-          <label for="search">Search</label>
-          <input id="search" type="search" placeholder="Search narrative, location, or operator" />
-        </div>
-        <div class="control">
-          <label for="stateFilter">State</label>
-          <select id="stateFilter">
-            <option value="">All states</option>
-          </select>
-        </div>
-        <div class="control">
-          <label for="eventFilter">Event type</label>
-          <select id="eventFilter">
-            <option value="">All event types</option>
-          </select>
-        </div>
-        <div class="control">
-          <label for="phaseFilter">Phase</label>
-          <select id="phaseFilter">
-            <option value="">All phases</option>
-          </select>
-        </div>
-        <div class="control">
-          <label for="sortOrder">Sort</label>
-          <select id="sortOrder">
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-          </select>
-        </div>
-        <div class="control download">
-          <a class="button" href="./data/incidents.csv" download>Download CSV</a>
-        </div>
-      </section>
+      <div class="metaRow">
+        <span class="pill"><b id="countShown">0</b> shown</span>
+        <span class="pill">Loaded: <b id="loadedStatus">—</b></span>
+        <button id="reset" class="btn ghost">Reset filters</button>
+      </div>
+    </div>
+  </header>
 
-      <section class="status">
-        <div id="statusMessage">Loading data…</div>
-        <div id="rowCount">Rows detected: 0</div>
-      </section>
+  <main class="wrap">
+    <div id="errors" class="errors" hidden></div>
+    <div id="results" class="grid"></div>
+  </main>
 
-      <section id="results" class="results"></section>
-    </main>
+  <footer class="foot">
+    <div class="wrap">
+      <span class="muted">CSV path: <code>./data/incidents.csv</code></span>
+    </div>
+  </footer>
 
-    <script src="./app.js"></script>
-  </body>
+  <script src="./app.js"></script>
+</body>
 </html>
