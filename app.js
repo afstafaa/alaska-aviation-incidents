@@ -1,443 +1,437 @@
-/* app.js — static GitHub Pages CSV viewer (no build)
-   Expects: ./data/incidents.csv
-   Uses narrative column: raw_narrative
+/* app.js — Alaska Aviation Incidents (static, no build, GitHub Pages)
+   Expects: index.html has elements with ids:
+   q, state, eventType, phase, sort, download, reset, results, shown, loaded, errors
 */
 
-const CSV_PATH = "./data/incidents.csv";
+(() => {
+  "use strict";
 
-// ---------- tiny helpers ----------
-const $ = (sel) => document.querySelector(sel);
+  // ✅ Use this path on GitHub Pages (repo root + /data/incidents.csv)
+  const CSV_PATH = "data/incidents.csv";
 
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
+  // ---------- helpers ----------
+  const $ = (id) => document.getElementById(id);
 
-function norm(s) {
-  return String(s ?? "").trim();
-}
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
 
-function upper(s) {
-  return norm(s).toUpperCase();
-}
+  function normStr(v) {
+    if (v === null || v === undefined) return "";
+    return String(v).trim();
+  }
 
-function safeNum(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
+  function toLower(v) {
+    return normStr(v).toLowerCase();
+  }
 
-function parseIsoDateMaybe(s) {
-  // accepts YYYY-MM-DD or ISO-ish; returns Date or null
-  const t = Date.parse(s);
-  return Number.isFinite(t) ? new Date(t) : null;
-}
+  function parseDateish(row) {
+    // Prefer event_date, else report_date, else event_datetime_z
+    const d = normStr(row.event_date || row.report_date || "");
+    if (d) return d;
 
-function displayDateFromRow(r) {
-  // Prefer event_date, else try event_datetime_z
-  const d1 = parseIsoDateMaybe(r.event_date);
-  if (d1) return d1.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-
-  const d2 = parseIsoDateMaybe(r.event_datetime_z);
-  if (d2) return d2.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-
-  return "Unknown date";
-}
-
-function sortKeyDatetime(r) {
-  // Use event_datetime_z primarily; fallback to event_date
-  const d = parseIsoDateMaybe(r.event_datetime_z) || parseIsoDateMaybe(r.event_date);
-  return d ? d.getTime() : -Infinity;
-}
-
-// ---------- robust CSV parser (handles commas + newlines inside quotes) ----------
-function parseCsv(text) {
-  // Normalizes line endings, then state-machine parse
-  const s = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-  const rows = [];
-  let row = [];
-  let field = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    const next = s[i + 1];
-
-    if (inQuotes) {
-      if (ch === '"' && next === '"') {
-        field += '"';
-        i++; // skip escaped quote
-      } else if (ch === '"') {
-        inQuotes = false;
-      } else {
-        field += ch;
-      }
-      continue;
+    const dtz = normStr(row.event_datetime_z || "");
+    if (dtz) {
+      // try to take YYYY-MM-DD from ISO
+      const m = dtz.match(/^(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] : dtz;
     }
+    return "";
+  }
 
-    if (ch === '"') {
-      inQuotes = true;
-      continue;
+  function sortKeyDate(row) {
+    // Convert to sortable timestamp-ish (best effort)
+    const iso = normStr(row.event_datetime_z || "");
+    if (iso) {
+      const t = Date.parse(iso);
+      if (!Number.isNaN(t)) return t;
     }
+    const d = parseDateish(row);
+    const t2 = Date.parse(d);
+    return Number.isNaN(t2) ? -Infinity : t2;
+  }
 
-    if (ch === ",") {
+  // Robust CSV parser (handles quotes + commas + newlines)
+  function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let field = "";
+    let i = 0;
+    let inQuotes = false;
+
+    const pushField = () => {
       row.push(field);
       field = "";
-      continue;
-    }
+    };
 
-    if (ch === "\n") {
-      row.push(field);
-      field = "";
-      rows.push(row);
+    const pushRow = () => {
+      // ignore totally empty trailing rows
+      const allEmpty = row.every((c) => String(c ?? "").trim() === "");
+      if (!allEmpty) rows.push(row);
       row = [];
-      continue;
+    };
+
+    while (i < text.length) {
+      const ch = text[i];
+
+      if (inQuotes) {
+        if (ch === '"') {
+          // escaped quote?
+          if (text[i + 1] === '"') {
+            field += '"';
+            i += 2;
+            continue;
+          }
+          inQuotes = false;
+          i += 1;
+          continue;
+        }
+        field += ch;
+        i += 1;
+        continue;
+      }
+
+      if (ch === '"') {
+        inQuotes = true;
+        i += 1;
+        continue;
+      }
+
+      if (ch === ",") {
+        pushField();
+        i += 1;
+        continue;
+      }
+
+      if (ch === "\n") {
+        pushField();
+        pushRow();
+        i += 1;
+        continue;
+      }
+
+      if (ch === "\r") {
+        // handle CRLF or lone CR
+        if (text[i + 1] === "\n") {
+          pushField();
+          pushRow();
+          i += 2;
+          continue;
+        }
+        pushField();
+        pushRow();
+        i += 1;
+        continue;
+      }
+
+      field += ch;
+      i += 1;
     }
 
-    field += ch;
+    // last field/row
+    pushField();
+    pushRow();
+
+    return rows;
   }
 
-  // last field
-  row.push(field);
-  rows.push(row);
+  function rowsToObjects(rows) {
+    if (!rows || rows.length < 2) return [];
+    const headers = rows[0].map((h) => normStr(h));
 
-  // Trim trailing empty rows
-  while (rows.length && rows[rows.length - 1].every((c) => norm(c) === "")) rows.pop();
+    const out = [];
+    for (let r = 1; r < rows.length; r++) {
+      const arr = rows[r];
+      if (!arr || arr.length === 0) continue;
 
-  return rows;
-}
-
-// ---------- DOM wiring ----------
-const els = {
-  q: $("#q"),
-  state: $("#state"),
-  eventType: $("#eventType"),
-  phase: $("#phase"),
-  sort: $("#sort"),
-  results: $("#results"),
-  status: $("#status"),
-  count: $("#count"),
-  download: $("#download"),
-  reset: $("#reset"),
-};
-
-function requireEls() {
-  const missing = Object.entries(els)
-    .filter(([_, el]) => !el)
-    .map(([k]) => k);
-  if (missing.length) {
-    throw new Error(
-      `Missing required HTML element id(s): ${missing.join(
-        ", "
-      )}. Your index.html must have elements with ids: q, state, eventType, phase, sort, results, status, count, download, reset.`
-    );
-  }
-}
-
-// ---------- app state ----------
-let allRows = [];
-let filteredRows = [];
-let headers = [];
-
-function setStatus(msg, ok = true) {
-  els.status.textContent = msg;
-  els.status.classList.toggle("bad", !ok);
-  els.status.classList.toggle("ok", ok);
-}
-
-function setCount(n) {
-  els.count.textContent = String(n);
-}
-
-function uniqSorted(values) {
-  const set = new Set(values.filter((v) => norm(v) !== ""));
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
-}
-
-function fillSelect(selectEl, values, placeholder) {
-  const prev = selectEl.value;
-  selectEl.innerHTML = "";
-  const opt0 = document.createElement("option");
-  opt0.value = "";
-  opt0.textContent = placeholder;
-  selectEl.appendChild(opt0);
-
-  for (const v of values) {
-    const opt = document.createElement("option");
-    opt.value = v;
-    opt.textContent = v;
-    selectEl.appendChild(opt);
-  }
-
-  // try to keep prior selection if still present
-  if (prev && values.includes(prev)) selectEl.value = prev;
-}
-
-function buildIndexableText(r) {
-  // search across high-value fields
-  return [
-    r.raw_narrative,
-    r.context_parens,
-    r.city,
-    r.state,
-    r.airport_code,
-    r.facility,
-    r.aircraft_primary,
-    r.aircraft_primary_model,
-    r.n_numbers,
-    r.phase,
-    r.event_type,
-    r.damage,
-    r.injuries,
-    r.pob,
-  ]
-    .map((x) => norm(x))
-    .filter(Boolean)
-    .join(" • ")
-    .toLowerCase();
-}
-
-function applyFilters() {
-  const q = norm(els.q.value).toLowerCase();
-  const st = norm(els.state.value);
-  const et = norm(els.eventType.value);
-  const ph = norm(els.phase.value);
-  const sort = norm(els.sort.value);
-
-  filteredRows = allRows.filter((r) => {
-    if (st && r.state !== st) return false;
-    if (et && r.event_type !== et) return false;
-    if (ph && r.phase !== ph) return false;
-    if (q) {
-      const hay = r.__search || "";
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
-
-  // sort
-  if (sort === "oldest") {
-    filteredRows.sort((a, b) => sortKeyDatetime(a) - sortKeyDatetime(b));
-  } else if (sort === "az") {
-    filteredRows.sort((a, b) => (a.__title || "").localeCompare(b.__title || ""));
-  } else {
-    // newest default
-    filteredRows.sort((a, b) => sortKeyDatetime(b) - sortKeyDatetime(a));
-  }
-
-  render();
-}
-
-function makeTitle(r) {
-  const city = norm(r.city) || "Unknown location";
-  const state = norm(r.state) || "";
-  const dateStr = displayDateFromRow(r);
-  return `${city}${state ? ", " + state : ""} — ${dateStr}`;
-}
-
-function render() {
-  els.results.innerHTML = "";
-
-  setCount(filteredRows.length);
-
-  if (!filteredRows.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "No results match your filters.";
-    els.results.appendChild(empty);
-    return;
-  }
-
-  for (const r of filteredRows) {
-    const card = document.createElement("div");
-    card.className = "card";
-
-    const title = makeTitle(r);
-
-    const badgeText = norm(r.event_type) || "EVENT";
-
-    const header = document.createElement("div");
-    header.className = "card-header";
-    header.innerHTML = `
-      <div class="card-title">${escapeHtml(title)}</div>
-      <div class="badge">${escapeHtml(badgeText)}</div>
-    `;
-
-    const meta = document.createElement("div");
-    meta.className = "meta";
-
-    // concise meta line
-    const metaParts = [];
-    if (r.state) metaParts.push(`<span><b>State:</b> ${escapeHtml(r.state)}</span>`);
-    if (r.facility) metaParts.push(`<span><b>Facility:</b> ${escapeHtml(r.facility)}</span>`);
-    if (r.airport_code) metaParts.push(`<span><b>Airport:</b> ${escapeHtml(r.airport_code)}</span>`);
-    if (r.aircraft_primary) metaParts.push(`<span><b>Tail:</b> ${escapeHtml(r.aircraft_primary)}</span>`);
-    if (r.aircraft_primary_model) metaParts.push(`<span><b>Model:</b> ${escapeHtml(r.aircraft_primary_model)}</span>`);
-    if (r.phase) metaParts.push(`<span><b>Phase:</b> ${escapeHtml(r.phase)}</span>`);
-    if (r.pob) metaParts.push(`<span><b>POB:</b> ${escapeHtml(r.pob)}</span>`);
-    if (r.injuries) metaParts.push(`<span><b>Injuries:</b> ${escapeHtml(r.injuries)}</span>`);
-    if (r.damage) metaParts.push(`<span><b>Damage:</b> ${escapeHtml(r.damage)}</span>`);
-
-    meta.innerHTML = metaParts.join(" ");
-
-    // narrative (raw_narrative first, else context_parens fallback)
-    const narrativeRaw = norm(r.raw_narrative) || norm(r.context_parens) || "No narrative provided.";
-    const narrativeClean = narrativeRaw.replace(/\s+\n/g, "\n").trim();
-
-    const narrative = document.createElement("div");
-    narrative.className = "narrative";
-
-    const maxLen = 320;
-    const isLong = narrativeClean.length > maxLen;
-
-    const shortText = isLong ? narrativeClean.slice(0, maxLen).trimEnd() + "…" : narrativeClean;
-
-    const p = document.createElement("div");
-    p.className = "narrative-text";
-    p.textContent = shortText;
-
-    narrative.appendChild(p);
-
-    if (isLong) {
-      const btn = document.createElement("button");
-      btn.className = "btn-secondary";
-      btn.type = "button";
-      btn.textContent = "View full";
-
-      let expanded = false;
-      btn.addEventListener("click", () => {
-        expanded = !expanded;
-        p.textContent = expanded ? narrativeClean : shortText;
-        btn.textContent = expanded ? "Show less" : "View full";
-      });
-
-      narrative.appendChild(btn);
-    }
-
-    card.appendChild(header);
-    card.appendChild(meta);
-    card.appendChild(narrative);
-
-    els.results.appendChild(card);
-  }
-}
-
-function downloadCsvOriginal() {
-  // downloads the exact file we fetched (not re-serialized)
-  fetch(CSV_PATH, { cache: "no-store" })
-    .then((r) => {
-      if (!r.ok) throw new Error("CSV download failed");
-      return r.blob();
-    })
-    .then((blob) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "incidents.csv";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    })
-    .catch((e) => alert(e.message || String(e)));
-}
-
-function resetFilters() {
-  els.q.value = "";
-  els.state.value = "";
-  els.eventType.value = "";
-  els.phase.value = "";
-  els.sort.value = "newest";
-  applyFilters();
-}
-
-// ---------- init ----------
-async function init() {
-  requireEls();
-
-  // Ensure sort options exist (in case index.html didn't define them)
-  // We won't overwrite if already has options.
-  if (!els.sort.querySelector("option")) {
-    els.sort.innerHTML = `
-      <option value="newest">Newest</option>
-      <option value="oldest">Oldest</option>
-      <option value="az">A–Z</option>
-    `;
-  }
-  if (!els.sort.value) els.sort.value = "newest";
-
-  setStatus("Loading…", true);
-
-  try {
-    const res = await fetch(CSV_PATH, { cache: "no-store" });
-    if (!res.ok) throw new Error(`Unable to load CSV at ${CSV_PATH} (HTTP ${res.status})`);
-    const csvText = await res.text();
-
-    const rows = parseCsv(csvText);
-    if (!rows.length) throw new Error("CSV appears empty");
-    headers = rows[0].map((h) => norm(h));
-
-    const dataRows = rows.slice(1).filter((r) => r.some((c) => norm(c) !== ""));
-    if (!dataRows.length) throw new Error("CSV has headers but no data rows");
-
-    // Map into objects by header
-    allRows = dataRows.map((arr) => {
       const obj = {};
-      headers.forEach((h, i) => (obj[h] = arr[i] ?? ""));
+      for (let c = 0; c < headers.length; c++) {
+        const key = headers[c] || `col_${c}`;
+        obj[key] = arr[c] ?? "";
+      }
+      out.push(obj);
+    }
+    return out;
+  }
 
-      // Normalize common fields (keep originals too)
-      obj.report_date = norm(obj.report_date);
-      obj.event_datetime_z = norm(obj.event_datetime_z);
-      obj.event_date = norm(obj.event_date);
-      obj.event_time_z = norm(obj.event_time_z);
-      obj.city = norm(obj.city);
-      obj.state = upper(obj.state);
-      obj.airport_code = upper(obj.airport_code);
-      obj.facility = norm(obj.facility);
-      obj.aircraft_primary = norm(obj.aircraft_primary);
-      obj.aircraft_primary_model = norm(obj.aircraft_primary_model);
-      obj.n_numbers = norm(obj.n_numbers);
-      obj.phase = norm(obj.phase);
-      obj.event_type = norm(obj.event_type);
-      obj.pob = norm(obj.pob);
-      obj.injuries = norm(obj.injuries);
-      obj.damage = norm(obj.damage);
-      obj.context_parens = norm(obj.context_parens);
-      obj.raw_narrative = norm(obj.raw_narrative);
+  function normalizeRow(raw) {
+    // Map/alias fields so your UI is consistent across CSV variants
+    const r = {};
+    for (const [k, v] of Object.entries(raw)) r[k] = normStr(v);
 
-      obj.__title = makeTitle(obj);
-      obj.__search = buildIndexableText(obj);
+    // Aliases
+    r.city = r.city || r.location_city || "";
+    r.state = r.state || r.location_state || "";
+    r.airport_code = r.airport_code || r.airport || r.airport_id || "";
+    r.facility = r.facility || r.facility_id || "";
+    r.phase = r.phase || r.flight_phase || "";
+    r.event_type = r.event_type || r.event || r.type || "";
+    r.pob = r.pob || r.persons_on_board || "";
+    r.injuries = r.injuries || r.injury || "";
+    r.damage = r.damage || "";
+    r.n_numbers = r.n_numbers || r.aircraft_1_nnumber || r.n_number || r.tail_number || "";
+    r.aircraft_primary_model = r.aircraft_primary_model || r.aircraft_1_type || r.aircraft_model || "";
+    r.aircraft_primary = r.aircraft_primary || r.aircraft || "";
 
-      return obj;
+    // ✅ Narrative fix: your CSV uses raw_narrative
+    r.narrative = r.narrative || r.raw_narrative || r.description || "";
+
+    // Dates
+    r.event_date = r.event_date || parseDateish(r);
+    r.event_time_z = r.event_time_z || "";
+
+    // For searching
+    r._search = [
+      r.city, r.state, r.airport_code, r.facility,
+      r.n_numbers, r.aircraft_primary, r.aircraft_primary_model,
+      r.phase, r.event_type, r.narrative
+    ].map(toLower).join(" ");
+
+    return r;
+  }
+
+  function uniqueSorted(values) {
+    const set = new Set();
+    values.forEach((v) => {
+      const s = normStr(v);
+      if (s) set.add(s);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
+  function setOptions(selectEl, values, allLabel) {
+    // keep first option as "all"
+    const first = selectEl.querySelector("option[value='']");
+    selectEl.innerHTML = "";
+    const optAll = document.createElement("option");
+    optAll.value = "";
+    optAll.textContent = allLabel;
+    selectEl.appendChild(optAll);
+
+    values.forEach((v) => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = v;
+      selectEl.appendChild(o);
+    });
+  }
+
+  // ---------- render ----------
+  function renderCards(rows) {
+    const results = $("results");
+    results.innerHTML = "";
+
+    const frag = document.createDocumentFragment();
+
+    rows.forEach((r) => {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      const titleCity = r.city ? `${r.city}, ${r.state || ""}`.replaceAll(" ,", ",").trim() : "Unknown location";
+      const titleDate = r.event_date || "Unknown date";
+      const title = `${titleCity} — ${titleDate}`;
+
+      const tag = r.event_type || "Event";
+
+      const fullText = normStr(r.narrative);
+      const shortText = fullText ? (fullText.length > 220 ? fullText.slice(0, 220).trim() + "…" : fullText) : "No narrative provided.";
+
+      card.innerHTML = `
+        <div class="cardTop">
+          <h3 class="title">${escapeHtml(title)}</h3>
+          <span class="tag">${escapeHtml(tag)}</span>
+        </div>
+
+        <div class="meta">
+          <span>State: <b>${escapeHtml(r.state || "—")}</b></span>
+          <span>Airport: <b>${escapeHtml(r.airport_code || "—")}</b></span>
+          <span>Facility: <b>${escapeHtml(r.facility || "—")}</b></span>
+          <span>Tail: <b>${escapeHtml(r.n_numbers || "—")}</b></span>
+          <span>Model: <b>${escapeHtml(r.aircraft_primary_model || r.aircraft_primary || "—")}</b></span>
+          <span>Phase: <b>${escapeHtml(r.phase || "—")}</b></span>
+          <span>POB: <b>${escapeHtml(r.pob || "—")}</b></span>
+          <span>Injuries: <b>${escapeHtml(r.injuries || "—")}</b></span>
+          <span>Damage: <b>${escapeHtml(r.damage || "—")}</b></span>
+        </div>
+
+        <div class="narr">${escapeHtml(shortText)}</div>
+      `;
+
+      if (fullText && fullText.length > 220) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "view-full";
+        btn.textContent = "View full";
+        let expanded = false;
+
+        btn.addEventListener("click", () => {
+          expanded = !expanded;
+          const narrEl = card.querySelector(".narr");
+          narrEl.textContent = expanded ? fullText : shortText;
+          btn.textContent = expanded ? "Show less" : "View full";
+        });
+
+        card.appendChild(btn);
+      }
+
+      frag.appendChild(card);
     });
 
-    // Fill dropdowns
-    fillSelect(els.state, uniqSorted(allRows.map((r) => r.state)), "All states");
-    fillSelect(els.eventType, uniqSorted(allRows.map((r) => r.event_type)), "All event types");
-    fillSelect(els.phase, uniqSorted(allRows.map((r) => r.phase)), "All phases");
-
-    // Hook events
-    els.q.addEventListener("input", applyFilters);
-    els.state.addEventListener("change", applyFilters);
-    els.eventType.addEventListener("change", applyFilters);
-    els.phase.addEventListener("change", applyFilters);
-    els.sort.addEventListener("change", applyFilters);
-
-    els.download.addEventListener("click", downloadCsvOriginal);
-    els.reset.addEventListener("click", resetFilters);
-
-    setStatus("Loaded OK", true);
-    applyFilters();
-  } catch (err) {
-    console.error(err);
-    setStatus(err.message || "Load failed", false);
-    els.results.innerHTML = `<div class="empty">Load failed. Check console for details.</div>`;
-    setCount(0);
+    results.appendChild(frag);
   }
-}
 
-init();
+  // ---------- filtering/sorting ----------
+  function applyFilters(allRows) {
+    const q = toLower($("q").value);
+    const state = normStr($("state").value);
+    const eventType = normStr($("eventType").value);
+    const phase = normStr($("phase").value);
+    const sort = normStr($("sort").value);
+
+    let rows = allRows;
+
+    if (q) rows = rows.filter((r) => r._search.includes(q));
+    if (state) rows = rows.filter((r) => r.state === state);
+    if (eventType) rows = rows.filter((r) => r.event_type === eventType);
+    if (phase) rows = rows.filter((r) => r.phase === phase);
+
+    if (sort === "newest") {
+      rows = rows.slice().sort((a, b) => sortKeyDate(b) - sortKeyDate(a));
+    } else if (sort === "oldest") {
+      rows = rows.slice().sort((a, b) => sortKeyDate(a) - sortKeyDate(b));
+    } else if (sort === "city") {
+      rows = rows.slice().sort((a, b) => (a.city || "").localeCompare(b.city || ""));
+    }
+
+    return rows;
+  }
+
+  function downloadCsv(rows) {
+    if (!rows.length) return;
+
+    const cols = [
+      "report_date","event_datetime_z","event_date","event_time_z",
+      "city","state","airport_code","facility",
+      "aircraft_primary","aircraft_primary_model","n_numbers",
+      "phase","event_type","pob","injuries","damage",
+      "form_8020_9","group_id","group_size","context_parens",
+      "narrative"
+    ];
+
+    const esc = (v) => {
+      const s = normStr(v);
+      if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+        return `"${s.replaceAll('"', '""')}"`;
+      }
+      return s;
+    };
+
+    const lines = [];
+    lines.push(cols.join(","));
+    rows.forEach((r) => {
+      lines.push(cols.map((c) => esc(r[c] ?? "")).join(","));
+    });
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "incidents_filtered.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------- init ----------
+  let ALL = [];
+
+  function setLoaded(statusText) {
+    $("loaded").textContent = statusText;
+  }
+
+  function setShown(n) {
+    $("shown").textContent = String(n);
+  }
+
+  function setError(msg) {
+    const box = $("errors");
+    if (!msg) {
+      box.style.display = "none";
+      box.textContent = "";
+      return;
+    }
+    box.style.display = "";
+    box.textContent = msg;
+  }
+
+  function wireUi() {
+    const rerender = () => {
+      const filtered = applyFilters(ALL);
+      setShown(filtered.length);
+      renderCards(filtered);
+    };
+
+    ["q","state","eventType","phase","sort"].forEach((id) => {
+      $(id).addEventListener("input", rerender);
+      $(id).addEventListener("change", rerender);
+    });
+
+    $("reset").addEventListener("click", () => {
+      $("q").value = "";
+      $("state").value = "";
+      $("eventType").value = "";
+      $("phase").value = "";
+      $("sort").value = "newest";
+      rerender();
+    });
+
+    $("download").addEventListener("click", () => {
+      const filtered = applyFilters(ALL);
+      downloadCsv(filtered);
+    });
+
+    rerender();
+  }
+
+  async function init() {
+    try {
+      setError("");
+      setLoaded("Loading…");
+
+      const resp = await fetch(CSV_PATH, { cache: "no-store" });
+      if (!resp.ok) throw new Error(`CSV fetch failed (${resp.status}) at ${CSV_PATH}`);
+
+      const text = await resp.text();
+      const rows = parseCsv(text);
+      const objs = rowsToObjects(rows).map(normalizeRow);
+
+      if (!objs.length) throw new Error("CSV parsed but produced 0 rows (check file content/headers).");
+
+      ALL = objs;
+
+      // Populate dropdowns
+      setOptions($("state"), uniqueSorted(ALL.map((r) => r.state)), "State (all)");
+      setOptions($("eventType"), uniqueSorted(ALL.map((r) => r.event_type)), "Event type (all)");
+      setOptions($("phase"), uniqueSorted(ALL.map((r) => r.phase)), "Phase (all)");
+
+      setLoaded("OK");
+      wireUi();
+    } catch (e) {
+      console.error(e);
+      setLoaded("Error");
+      setShown(0);
+      renderCards([]);
+      setError(e?.message || String(e));
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+})();
