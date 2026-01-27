@@ -135,7 +135,23 @@ function toDisplayModel(obj) {
   const model = pick(obj, "aircraft_primary_model", "aircraft_1_type", "aircraft_1_model");
   const phase = pick(obj, "phase");
   const eventType = pick(obj, "event_type");
-  const narrative = pick(obj, "context", "narrative");
+  // Pull narrative from best available column(s)
+const issueParts = Object.keys(obj)
+  .filter(k => k.startsWith("issue_") || k.startsWith("issue"))
+  .sort()
+  .map(k => String(obj[k] || "").trim())
+  .filter(Boolean);
+
+const narrative =
+  pick(obj,
+    "context",
+    "narrative",
+    "remarks",
+    "description",
+    "details",
+    "synopsis",
+    "event_description"
+  ) || (issueParts.length ? issueParts.join(" ") : "");
   const injuries = pick(obj, "injuries");
   const damage = pick(obj, "damage");
   const pob = pick(obj, "pob");
