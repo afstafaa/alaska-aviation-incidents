@@ -1,0 +1,6 @@
+event_date,state,event_type,phase,location,operator,narrative
+2024-02-12,AK,Incident,Takeoff,"Anchorage, AK",Northern Wings Air,"During takeoff roll, the aircraft experienced a brief loss of power. The crew rejected takeoff and returned to the ramp without further issues."
+2023-11-03,AK,Accident,Landing,"Juneau, AK",Glacier Air,"A hard landing occurred after gusty crosswinds. The aircraft sustained minor damage to the landing gear and was towed from the runway."
+2022-07-18,AK,Incident,En Route,"Nome, AK",Bering Regional,"Crew reported an intermittent avionics failure mid-flight. The flight returned to base and landed safely."
+2021-09-27,AK,Incident,Taxi,"Fairbanks, AK",North Star Aviation,"While taxiing, the crew noted a strong fuel odor and shut down the engine. Maintenance later found a loose fuel line fitting."
+2020-01-05,AK,Accident,Approach,"Kodiak, AK",Arctic Connect,"The aircraft encountered icing on approach. The pilot executed a go-around, then landed safely."
