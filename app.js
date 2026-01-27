@@ -89,6 +89,9 @@ const pickSortDate = (row) =>
 
 const pickDisplayDate = (row) => row.event_date || row.event_datetime_z || row.report_date || "";
 
+const pickNarrative = (row) =>
+  row.context || row.narrative || row.description || "No narrative provided.";
+
 const renderResults = () => {
   const term = searchInput.value.trim().toLowerCase();
   const state = stateFilter.value;
@@ -103,11 +106,9 @@ const renderResults = () => {
     .filter((row) => {
       if (!term) return true;
       return (
-        row.raw_narrative.toLowerCase().includes(term) ||
+        pickNarrative(row).toLowerCase().includes(term) ||
         row.city.toLowerCase().includes(term) ||
-        row.facility.toLowerCase().includes(term) ||
-        row.aircraft_primary.toLowerCase().includes(term) ||
-        row.aircraft_primary_model.toLowerCase().includes(term) ||
+        row.airport_code.toLowerCase().includes(term) ||
         row.n_numbers.toLowerCase().includes(term)
       );
     })
@@ -159,11 +160,14 @@ const renderResults = () => {
       <span><strong>Model:</strong> ${row.aircraft_primary_model || "Unknown"}</span>
       <span><strong>N-number(s):</strong> ${row.n_numbers || "Unknown"}</span>
       <span><strong>Phase:</strong> ${row.phase || "Unknown"}</span>
+      <span><strong>POB:</strong> ${row.pob || "Unknown"}</span>
+      <span><strong>Injuries:</strong> ${row.injuries || "Unknown"}</span>
+      <span><strong>Damage:</strong> ${row.damage || "Unknown"}</span>
     `;
 
     const narrative = document.createElement("p");
     narrative.className = "narrative";
-    const fullText = row.raw_narrative;
+    const fullText = pickNarrative(row);
     const shortText = fullText.length > 160 ? `${fullText.slice(0, 160)}…` : fullText;
     narrative.textContent = shortText;
 
@@ -211,13 +215,20 @@ const init = async () => {
       headers.forEach((header, index) => {
         entry[header] = normalize(row[index]);
       });
-      entry.raw_narrative = entry.raw_narrative || "No narrative provided.";
+      entry.context = entry.context || "";
+      entry.narrative = entry.narrative || "";
+      entry.description = entry.description || "";
       entry.city = entry.city || "Unknown city";
       entry.state = entry.state || "";
+      entry.airport_code = entry.airport_code || "";
       entry.facility = entry.facility || "";
       entry.aircraft_primary = entry.aircraft_primary || "";
       entry.aircraft_primary_model = entry.aircraft_primary_model || "";
       entry.n_numbers = entry.n_numbers || "";
+      entry.phase = entry.phase || "";
+      entry.pob = entry.pob || "";
+      entry.injuries = entry.injuries || "";
+      entry.damage = entry.damage || "";
       return entry;
     });
 
