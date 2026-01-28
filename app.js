@@ -1,16 +1,11 @@
-/* app.js (matches your index.html)
-   IDs used:
-   - search, stateFilter, eventFilter, phaseFilter, sortOrder
-   - statusMessage, rowCount, results
-   Data file:
-   - ./data/incidents.csv
+/* app.js (auto-detects narrative column)
+   Works with your index.html IDs:
+   search, stateFilter, eventFilter, phaseFilter, sortOrder
+   statusMessage, rowCount, results
+   Loads: ./data/incidents.csv
 */
 
 const CSV_PATH = "./data/incidents.csv";
-
-// Keep internal narrative exactly as-is.
-// If you ever want to remove only obvious boilerplate strings, set to true.
-const STRIP_BOILERPLATE = false;
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,7 +19,6 @@ function parseCsv(text) {
   let field = "";
   let inQuotes = false;
 
-  // Normalize line endings
   text = String(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
   for (let i = 0; i < text.length; i++) {
@@ -32,7 +26,6 @@ function parseCsv(text) {
 
     if (inQuotes) {
       if (c === '"') {
-        // escaped quote
         if (text[i + 1] === '"') {
           field += '"';
           i++;
@@ -59,11 +52,8 @@ function parseCsv(text) {
     }
   }
 
-  // Flush last row
   row.push(field);
-  // Avoid pushing a totally empty trailing row
   if (row.some((x) => String(x).trim() !== "")) out.push(row);
-
   return out;
 }
 
@@ -87,43 +77,16 @@ function pick(obj, keys) {
   return "";
 }
 
-function cleanInternalBoilerplate(text) {
-  if (!text) return "";
-  let t = String(text);
-
-  // Only remove these known footer/header strings (does not rewrite narrative)
-  const patterns = [
-    /Page\s+\d+\s+FOR\s+OFFICIAL\s+USE\s+ONLY/gi,
-    /FOR\s+OFFICIAL\s+USE\s+ONLY/gi,
-    /\(Public availability to be determined under Title 5 USC 552\)/gi
-  ];
-  for (const re of patterns) t = t.replace(re, "");
-
-  // Trim extra whitespace created by removals
-  t = t.replace(/[ \t]{2,}/g, " ");
-  t = t.replace(/\n{3,}/g, "\n\n").trim();
-  return t;
-}
-
-function getNarrative(obj) {
-  const raw = pick(obj, ["context", "narrative", "details", "summary"]);
-  if (!raw) return "";
-  if (!STRIP_BOILERPLATE) return safe(raw);
-  return cleanInternalBoilerplate(raw) || safe(raw);
-}
-
 // ---------------- Date helpers ----------------
 function parseUSDate(s) {
   s = norm(s);
   if (!s) return null;
 
-  // ISO YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
     const d = new Date(s);
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // M/D/YYYY
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
     const mm = Number(m[1]);
@@ -149,12 +112,53 @@ function formatNiceDate(event_date, event_time_z) {
   return tz ? `${ds} (${tz})` : ds;
 }
 
+// ---------------- Narrative auto-detection ----------------
+function detectNarrativeKey(headers) {
+  // Prefer these keywords in this order
+  const priority = [
+    "context",
+    "narrative",
+    "raw narrative",
+    "raw_narrative",
+    "details",
+    "description",
+    "summary",
+    "remarks",
+    "notes",
+    "text"
+  ];
+
+  const lowered = headers.map((h) => ({
+    raw: h,
+    clean: lower(h).replace(/\uFEFF/g, "") // strip BOM if present
+  }));
+
+  // 1) direct match by keyword (contains)
+  for (const key of priority) {
+    const found = lowered.find((h) => h.clean === key || h.clean.includes(key));
+    if (found) return found.raw;
+  }
+
+  // 2) heuristic: any header that contains "narr" or "context"
+  const heur = lowered.find((h) => h.clean.includes("narr") || h.clean.includes("context"));
+  if (heur) return heur.raw;
+
+  return ""; // none found
+}
+
+function getNarrative(obj, narrativeKey) {
+  if (narrativeKey && obj[narrativeKey] != null && String(obj[narrativeKey]).trim() !== "") {
+    return safe(obj[narrativeKey]);
+  }
+  // fallback to common exact keys
+  return safe(pick(obj, ["context", "narrative", "details", "description", "summary"]));
+}
+
 // ---------------- Mapping ----------------
-function mapRow(headers, values) {
+function mapRow(headers, values, narrativeKey) {
   const obj = {};
   headers.forEach((h, idx) => (obj[h] = values[idx] ?? ""));
 
-  // Canonical fields used by UI (supports your CSV columns)
   const report_date = norm(pick(obj, ["report_date", "Report Date"]));
   const event_date = norm(pick(obj, ["event_date", "Event Date"]));
   const event_time_z = norm(pick(obj, ["event_time_z", "event_time", "time_z"]));
@@ -174,9 +178,8 @@ function mapRow(headers, values) {
   const damage = norm(pick(obj, ["damage", "Damage"]));
   const form8020 = norm(pick(obj, ["form_8020_9", "8020-9", "form8020"]));
 
-  const narrative = getNarrative(obj);
+  const narrative = getNarrative(obj, narrativeKey);
 
-  // Sort timestamp preference: event_date else report_date
   const d = parseUSDate(event_date) || parseUSDate(report_date);
   const sort_ts = d ? d.getTime() : 0;
 
@@ -195,9 +198,7 @@ function mapRow(headers, values) {
       damage,
       form8020,
       narrative
-    ]
-      .filter(Boolean)
-      .join(" | ")
+    ].filter(Boolean).join(" | ")
   );
 
   return {
@@ -253,13 +254,11 @@ function renderCard(r) {
   const location = [r.__city, r.__state].filter(Boolean).join(", ") || "Unknown location";
   const dateLine = formatNiceDate(r.__event_date, r.__event_time_z) || "Unknown date";
 
-  // Head line 1: location/date (NTSB-ish)
   const line1 = document.createElement("div");
   line1.className = "cardHeadLine1";
   line1.textContent = `${location} — ${dateLine}`;
   card.appendChild(line1);
 
-  // Head line 2: aircraft line
   const line2 = document.createElement("div");
   line2.className = "cardHeadLine2";
   const reg = r.__n_numbers || "Unknown registration";
@@ -269,7 +268,6 @@ function renderCard(r) {
   line2.textContent = `${reg}${model}${apt}${fac}`;
   card.appendChild(line2);
 
-  // Chips
   const chipsWrap = document.createElement("div");
   chipsWrap.className = "chips";
   chipsWrap.appendChild(chip("Report", r.__report_date));
@@ -281,7 +279,6 @@ function renderCard(r) {
   chipsWrap.appendChild(chip("8020-9", r.__form8020));
   card.appendChild(chipsWrap);
 
-  // Narrative (raw)
   const narrWrap = document.createElement("div");
   narrWrap.className = "narrWrap";
 
@@ -299,7 +296,6 @@ function renderCard(r) {
   narrWrap.appendChild(full);
   card.appendChild(narrWrap);
 
-  // Expand button only if long enough to matter
   const needsExpand = narr.length > 220 || narr.includes("\n");
   if (needsExpand) {
     const actions = document.createElement("div");
@@ -348,7 +344,6 @@ function render() {
   resultsEl.innerHTML = "";
 
   const rows = applyFilters();
-
   $("rowCount").textContent = `Rows detected: ${rows.length}`;
 
   for (const r of rows) resultsEl.appendChild(renderCard(r));
@@ -367,12 +362,14 @@ async function init() {
     const parsed = parseCsv(text).filter((r) => r.some((c) => String(c).trim() !== ""));
     if (!parsed.length) throw new Error("CSV appears empty");
 
-    const headers = parsed[0].map((h) => norm(h));
+    // Strip BOM from first header if present
+    let headers = parsed[0].map((h) => norm(h).replace(/\uFEFF/g, ""));
     const dataRows = parsed.slice(1);
 
-    ALL_ROWS = dataRows.map((vals) => mapRow(headers, vals));
+    const narrativeKey = detectNarrativeKey(headers);
 
-    // Build filter lists
+    ALL_ROWS = dataRows.map((vals) => mapRow(headers, vals, narrativeKey));
+
     const states = Array.from(new Set(ALL_ROWS.map((r) => r.__state).filter(Boolean))).sort();
     const types = Array.from(new Set(ALL_ROWS.map((r) => r.__event_type).filter(Boolean))).sort();
     const phases = Array.from(new Set(ALL_ROWS.map((r) => r.__phase).filter(Boolean))).sort();
@@ -381,16 +378,18 @@ async function init() {
     fillSelect($("eventFilter"), types, "All event types");
     fillSelect($("phaseFilter"), phases, "All phases");
 
-    // Wire events
     $("search").addEventListener("input", render);
     $("stateFilter").addEventListener("change", render);
     $("eventFilter").addEventListener("change", render);
     $("phaseFilter").addEventListener("change", render);
     $("sortOrder").addEventListener("change", render);
 
-    $("statusMessage").textContent = "Loaded OK";
-    $("rowCount").textContent = `Rows detected: ${ALL_ROWS.length}`;
+    // Helpful status info
+    $("statusMessage").textContent = narrativeKey
+      ? `Loaded OK (narrative column: ${narrativeKey})`
+      : "Loaded OK";
 
+    $("rowCount").textContent = `Rows detected: ${ALL_ROWS.length}`;
     render();
   } catch (err) {
     console.error(err);
