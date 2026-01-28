@@ -207,7 +207,7 @@ function render(rows) {
     if (form8020) chips.appendChild(chip("8020-9", form8020));
 
     // ✅ Narrative (this is the key)
-    const narrative = get(row, narrativeKey);
+    const narrative = get(row, "raw_narrative", narrativeKey);
 
     const narrWrap = document.createElement("div");
     narrWrap.className = "narrWrap";
