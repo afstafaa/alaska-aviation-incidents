@@ -1,238 +1,172 @@
-/* app.js (auto-detects narrative column)
-   Works with your index.html IDs:
-   search, stateFilter, eventFilter, phaseFilter, sortOrder
-   statusMessage, rowCount, results
-   Loads: ./data/incidents.csv
-*/
+// app.js — Alaska Aviation Incidents (GitHub Pages, client-side)
+// - Robust CSV parsing (quotes, commas, newlines)
+// - Auto-detect narrative column (context_parens / narrative / etc.)
+// - Cache-bust CSV fetch to avoid stale GitHub Pages caching
 
-const CSV_PATH = "./data/incidents.csv";
+const el = (id) => document.getElementById(id);
 
-const $ = (id) => document.getElementById(id);
+const els = {
+  search: el("search"),
+  state: el("stateFilter"),
+  event: el("eventFilter"),
+  phase: el("phaseFilter"),
+  sort: el("sortOrder"),
+  status: el("statusMessage"),
+  rowCount: el("rowCount"),
+  results: el("results"),
+};
 
-let ALL_ROWS = [];
-let FILTERED_ROWS = [];
+let allRows = [];
+let narrativeKey = null;
 
-// ---------------- CSV parsing (quoted fields + commas + newlines) ----------------
-function parseCsv(text) {
-  const out = [];
+function normalize(s) {
+  return (s ?? "").toString().trim();
+}
+
+function safeUpper(s) {
+  const t = normalize(s);
+  return t ? t.toUpperCase() : "";
+}
+
+function toNumberMaybe(v) {
+  const t = normalize(v);
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseDateForSort(row) {
+  // Prefer event_datetime_z (ISO) then event_date + event_time_z then report_date
+  const dt = normalize(row.event_datetime_z);
+  if (dt) {
+    const ms = Date.parse(dt);
+    if (!Number.isNaN(ms)) return ms;
+  }
+  const d = normalize(row.event_date);
+  const tz = normalize(row.event_time_z);
+  if (d) {
+    // If time is "1930Z" make "19:30Z"
+    let iso = d;
+    if (tz && /^[0-2]\d[0-5]\dZ$/.test(tz)) {
+      iso = `${d}T${tz.slice(0, 2)}:${tz.slice(2, 4)}:00Z`;
+    }
+    const ms = Date.parse(iso);
+    if (!Number.isNaN(ms)) return ms;
+  }
+  const rd = normalize(row.report_date);
+  if (rd) {
+    const ms = Date.parse(rd);
+    if (!Number.isNaN(ms)) return ms;
+  }
+  return 0;
+}
+
+/**
+ * Robust CSV parser:
+ * - supports quoted fields
+ * - supports embedded commas and newlines inside quotes
+ * - returns array of rows (each row array of cells)
+ */
+function parseCsv(csvText) {
+  const rows = [];
   let row = [];
-  let field = "";
+  let cell = "";
+  let i = 0;
   let inQuotes = false;
 
-  text = String(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  // Normalize line endings
+  const text = csvText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
+  while (i < text.length) {
+    const ch = text[i];
 
     if (inQuotes) {
-      if (c === '"') {
+      if (ch === '"') {
+        // escaped quote?
         if (text[i + 1] === '"') {
-          field += '"';
-          i++;
+          cell += '"';
+          i += 2;
+          continue;
         } else {
           inQuotes = false;
+          i += 1;
+          continue;
         }
       } else {
-        field += c;
+        cell += ch;
+        i += 1;
+        continue;
       }
     } else {
-      if (c === '"') {
+      if (ch === '"') {
         inQuotes = true;
-      } else if (c === ",") {
-        row.push(field);
-        field = "";
-      } else if (c === "\n") {
-        row.push(field);
-        field = "";
-        out.push(row);
-        row = [];
-      } else {
-        field += c;
+        i += 1;
+        continue;
       }
+      if (ch === ",") {
+        row.push(cell);
+        cell = "";
+        i += 1;
+        continue;
+      }
+      if (ch === "\n") {
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = "";
+        i += 1;
+        continue;
+      }
+      cell += ch;
+      i += 1;
     }
   }
 
-  row.push(field);
-  if (row.some((x) => String(x).trim() !== "")) out.push(row);
-  return out;
+  // last cell
+  row.push(cell);
+  rows.push(row);
+
+  // Remove trailing totally-empty rows
+  return rows.filter((r) => r.some((c) => normalize(c).length > 0));
 }
 
-function safe(v) {
-  return v == null ? "" : String(v);
-}
-function norm(v) {
-  return safe(v).trim();
-}
-function upper(v) {
-  return norm(v).toUpperCase();
-}
-function lower(v) {
-  return norm(v).toLowerCase();
-}
-function pick(obj, keys) {
-  for (const k of keys) {
-    const v = obj[k];
-    if (v != null && String(v).trim() !== "") return v;
-  }
-  return "";
-}
-
-// ---------------- Date helpers ----------------
-function parseUSDate(s) {
-  s = norm(s);
-  if (!s) return null;
-
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) {
-    const mm = Number(m[1]);
-    const dd = Number(m[2]);
-    const yy = Number(m[3]);
-    const d = new Date(Date.UTC(yy, mm - 1, dd));
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  return null;
-}
-
-function formatNiceDate(event_date, event_time_z) {
-  const d = parseUSDate(event_date);
-  const tz = norm(event_time_z);
-  if (!d) return tz ? `${event_date} (${tz})` : (event_date || "");
-  const ds = d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    timeZone: "UTC"
-  });
-  return tz ? `${ds} (${tz})` : ds;
-}
-
-// ---------------- Narrative auto-detection ----------------
 function detectNarrativeKey(headers) {
-  // Prefer these keywords in this order
+  // Most likely your narrative is in context_parens
   const priority = [
-    "context",
+    "context_parens",
     "narrative",
-    "raw narrative",
-    "raw_narrative",
+    "context",
     "details",
     "description",
     "summary",
     "remarks",
-    "notes",
-    "text"
+    "note",
   ];
 
-  const lowered = headers.map((h) => ({
-    raw: h,
-    clean: lower(h).replace(/\uFEFF/g, "") // strip BOM if present
-  }));
-
-  // 1) direct match by keyword (contains)
-  for (const key of priority) {
-    const found = lowered.find((h) => h.clean === key || h.clean.includes(key));
-    if (found) return found.raw;
+  const lower = headers.map((h) => normalize(h).toLowerCase());
+  for (const k of priority) {
+    const idx = lower.indexOf(k);
+    if (idx !== -1) return headers[idx];
   }
 
-  // 2) heuristic: any header that contains "narr" or "context"
-  const heur = lowered.find((h) => h.clean.includes("narr") || h.clean.includes("context"));
-  if (heur) return heur.raw;
-
-  return ""; // none found
-}
-
-function getNarrative(obj, narrativeKey) {
-  if (narrativeKey && obj[narrativeKey] != null && String(obj[narrativeKey]).trim() !== "") {
-    return safe(obj[narrativeKey]);
+  // fallback: find any header containing "narr"
+  for (let i = 0; i < lower.length; i++) {
+    if (lower[i].includes("narr")) return headers[i];
   }
-  // fallback to common exact keys
-  return safe(pick(obj, ["context", "narrative", "details", "description", "summary"]));
+  return null;
 }
 
-// ---------------- Mapping ----------------
-function mapRow(headers, values, narrativeKey) {
-  const obj = {};
-  headers.forEach((h, idx) => (obj[h] = values[idx] ?? ""));
-
-  const report_date = norm(pick(obj, ["report_date", "Report Date"]));
-  const event_date = norm(pick(obj, ["event_date", "Event Date"]));
-  const event_time_z = norm(pick(obj, ["event_time_z", "event_time", "time_z"]));
-
-  const city = norm(pick(obj, ["city", "City"]));
-  const state = upper(pick(obj, ["state", "State"]));
-  const airport = upper(pick(obj, ["airport_code", "airport", "Airport", "facility_code"]));
-  const facility = norm(pick(obj, ["facility", "Facility"]));
-
-  const n_numbers = norm(pick(obj, ["n_numbers", "aircraft_1_nnumber", "registration", "tail", "aircraft_primary"]));
-  const model = norm(pick(obj, ["aircraft_primary_model", "aircraft_1_type", "model"]));
-
-  const phase = norm(pick(obj, ["phase", "Phase"]));
-  const event_type = norm(pick(obj, ["event_type", "Event Type"]));
-  const pob = norm(pick(obj, ["pob", "POB"]));
-  const injuries = norm(pick(obj, ["injuries", "Injuries"]));
-  const damage = norm(pick(obj, ["damage", "Damage"]));
-  const form8020 = norm(pick(obj, ["form_8020_9", "8020-9", "form8020"]));
-
-  const narrative = getNarrative(obj, narrativeKey);
-
-  const d = parseUSDate(event_date) || parseUSDate(report_date);
-  const sort_ts = d ? d.getTime() : 0;
-
-  const searchBlob = lower(
-    [
-      city,
-      state,
-      airport,
-      facility,
-      n_numbers,
-      model,
-      phase,
-      event_type,
-      pob,
-      injuries,
-      damage,
-      form8020,
-      narrative
-    ].filter(Boolean).join(" | ")
+function buildOptions(selectEl, values, placeholder) {
+  const unique = Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b)
   );
-
-  return {
-    ...obj,
-    __report_date: report_date,
-    __event_date: event_date,
-    __event_time_z: event_time_z,
-    __city: city,
-    __state: state,
-    __airport: airport,
-    __facility: facility,
-    __n_numbers: n_numbers,
-    __model: model,
-    __phase: phase,
-    __event_type: event_type,
-    __pob: pob,
-    __injuries: injuries,
-    __damage: damage,
-    __form8020: form8020,
-    __narrative: narrative,
-    __sort_ts: sort_ts,
-    __search: searchBlob
-  };
-}
-
-// ---------------- UI helpers ----------------
-function fillSelect(selectEl, values, placeholder) {
   selectEl.innerHTML = "";
   const opt0 = document.createElement("option");
   opt0.value = "";
   opt0.textContent = placeholder;
   selectEl.appendChild(opt0);
 
-  for (const v of values) {
+  for (const v of unique) {
     const opt = document.createElement("option");
     opt.value = v;
     opt.textContent = v;
@@ -240,64 +174,99 @@ function fillSelect(selectEl, values, placeholder) {
   }
 }
 
-function chip(label, value) {
-  const span = document.createElement("span");
-  span.className = "chip";
-  span.innerHTML = `<b>${label}:</b> ${value && String(value).trim() ? String(value).trim() : "—"}`;
-  return span;
+function getField(row, ...keys) {
+  for (const k of keys) {
+    if (!k) continue;
+    const v = row[k];
+    if (normalize(v)) return normalize(v);
+  }
+  return "";
 }
 
-function renderCard(r) {
-  const card = document.createElement("div");
-  card.className = "card";
+function formatTitle(row) {
+  const city = getField(row, "city");
+  const state = getField(row, "state");
+  const loc = [city, state].filter(Boolean).join(", ");
+  const eventDate = getField(row, "event_date") || getField(row, "event_datetime_z");
+  const timeZ = getField(row, "event_time_z");
+  const datePart = eventDate ? eventDate.split("T")[0] : "";
+  const timePart = timeZ ? ` (${timeZ})` : "";
 
-  const location = [r.__city, r.__state].filter(Boolean).join(", ") || "Unknown location";
-  const dateLine = formatNiceDate(r.__event_date, r.__event_time_z) || "Unknown date";
+  if (loc && datePart) return `${loc} — ${datePart}${timePart}`;
+  if (loc) return loc;
+  if (datePart) return `${datePart}${timePart}`;
+  return "Unknown location";
+}
 
-  const line1 = document.createElement("div");
-  line1.className = "cardHeadLine1";
-  line1.textContent = `${location} — ${dateLine}`;
-  card.appendChild(line1);
+function formatLine2(row) {
+  const n1 = getField(row, "aircraft_primary", "aircraft_1_nnumber", "n_numbers");
+  const model = getField(row, "aircraft_primary_model", "aircraft_1_type", "aircraft_primary_model");
+  const facility = getField(row, "facility", "airport_name", "airport_code");
 
-  const line2 = document.createElement("div");
-  line2.className = "cardHeadLine2";
-  const reg = r.__n_numbers || "Unknown registration";
-  const model = r.__model ? ` • ${r.__model}` : "";
-  const apt = r.__airport ? ` • ${r.__airport}` : "";
-  const fac = r.__facility ? ` • ${r.__facility}` : "";
-  line2.textContent = `${reg}${model}${apt}${fac}`;
-  card.appendChild(line2);
+  const parts = [];
+  if (n1) parts.push(n1);
+  if (model) parts.push(model);
+  if (facility) parts.push(facility);
+  return parts.join(" • ");
+}
 
-  const chipsWrap = document.createElement("div");
-  chipsWrap.className = "chips";
-  chipsWrap.appendChild(chip("Report", r.__report_date));
-  chipsWrap.appendChild(chip("Phase", r.__phase));
-  chipsWrap.appendChild(chip("Type", r.__event_type));
-  chipsWrap.appendChild(chip("POB", r.__pob));
-  chipsWrap.appendChild(chip("Injuries", r.__injuries));
-  chipsWrap.appendChild(chip("Damage", r.__damage));
-  chipsWrap.appendChild(chip("8020-9", r.__form8020));
-  card.appendChild(chipsWrap);
+function chip(label, value) {
+  const d = document.createElement("div");
+  d.className = "chip";
+  d.innerHTML = `<b>${label}:</b> ${value}`;
+  return d;
+}
 
-  const narrWrap = document.createElement("div");
-  narrWrap.className = "narrWrap";
+function renderRows(rows) {
+  els.results.innerHTML = "";
 
-  const narr = r.__narrative && r.__narrative.trim() ? r.__narrative : "No narrative provided.";
+  for (const row of rows) {
+    const card = document.createElement("article");
+    card.className = "card";
 
-  const preview = document.createElement("div");
-  preview.className = "narrPreview";
-  preview.textContent = narr;
+    const h1 = document.createElement("div");
+    h1.className = "cardHeadLine1";
+    h1.textContent = formatTitle(row);
 
-  const full = document.createElement("div");
-  full.className = "narrFull";
-  full.textContent = narr;
+    const h2 = document.createElement("div");
+    h2.className = "cardHeadLine2";
+    h2.textContent = formatLine2(row) || "";
 
-  narrWrap.appendChild(preview);
-  narrWrap.appendChild(full);
-  card.appendChild(narrWrap);
+    const chips = document.createElement("div");
+    chips.className = "chips";
 
-  const needsExpand = narr.length > 220 || narr.includes("\n");
-  if (needsExpand) {
+    const reportDate = getField(row, "report_date");
+    const phase = getField(row, "phase");
+    const eventType = getField(row, "event_type");
+    const pob = getField(row, "pob");
+    const injuries = getField(row, "injuries");
+    const damage = getField(row, "damage");
+    const form8020 = getField(row, "form_8020_9");
+
+    if (reportDate) chips.appendChild(chip("Report", reportDate));
+    if (phase) chips.appendChild(chip("Phase", phase));
+    if (eventType) chips.appendChild(chip("Type", eventType));
+    if (pob) chips.appendChild(chip("POB", pob));
+    if (injuries) chips.appendChild(chip("Injuries", injuries));
+    if (damage) chips.appendChild(chip("Damage", damage));
+    if (form8020) chips.appendChild(chip("8020-9", form8020));
+
+    // Narrative (this is the key fix)
+    const narr = getField(row, narrativeKey) || "";
+    const narrWrap = document.createElement("div");
+    narrWrap.className = "narrWrap";
+
+    const preview = document.createElement("div");
+    preview.className = "narrPreview";
+    preview.textContent = narr ? narr : "No narrative provided.";
+
+    const full = document.createElement("div");
+    full.className = "narrFull";
+    full.textContent = narr ? narr : "No narrative provided.";
+
+    narrWrap.appendChild(preview);
+    narrWrap.appendChild(full);
+
     const actions = document.createElement("div");
     actions.className = "cardActions";
 
@@ -312,90 +281,127 @@ function renderCard(r) {
     });
 
     actions.appendChild(btn);
-    card.appendChild(actions);
-  }
 
-  return card;
+    card.appendChild(h1);
+    if (h2.textContent) card.appendChild(h2);
+    card.appendChild(chips);
+    card.appendChild(narrWrap);
+    card.appendChild(actions);
+
+    els.results.appendChild(card);
+  }
 }
 
 function applyFilters() {
-  const q = lower($("search").value);
-  const state = $("stateFilter").value;
-  const eventType = $("eventFilter").value;
-  const phase = $("phaseFilter").value;
-  const sort = $("sortOrder").value;
+  const q = normalize(els.search.value).toLowerCase();
+  const st = normalize(els.state.value);
+  const ev = normalize(els.event.value);
+  const ph = normalize(els.phase.value);
+  const sort = normalize(els.sort.value);
 
-  FILTERED_ROWS = ALL_ROWS.filter((r) => {
-    if (q && !r.__search.includes(q)) return false;
-    if (state && r.__state !== state) return false;
-    if (eventType && r.__event_type !== eventType) return false;
-    if (phase && r.__phase !== phase) return false;
-    return true;
+  let filtered = allRows.slice();
+
+  if (st) filtered = filtered.filter((r) => normalize(r.state) === st);
+  if (ev) filtered = filtered.filter((r) => normalize(r.event_type) === ev);
+  if (ph) filtered = filtered.filter((r) => normalize(r.phase) === ph);
+
+  if (q) {
+    filtered = filtered.filter((r) => {
+      const hay = [
+        r.state,
+        r.city,
+        r.airport_code,
+        r.facility,
+        r.aircraft_primary,
+        r.aircraft_primary_model,
+        r.aircraft_1_nnumber,
+        r.n_numbers,
+        r.event_type,
+        r.phase,
+        r.damage,
+        r.injuries,
+        r.pob,
+        r[narrativeKey],
+      ]
+        .map((x) => normalize(x).toLowerCase())
+        .join(" | ");
+      return hay.includes(q);
+    });
+  }
+
+  filtered.sort((a, b) => {
+    const da = parseDateForSort(a);
+    const db = parseDateForSort(b);
+    return sort === "oldest" ? da - db : db - da;
   });
 
-  if (sort === "newest") FILTERED_ROWS.sort((a, b) => b.__sort_ts - a.__sort_ts);
-  if (sort === "oldest") FILTERED_ROWS.sort((a, b) => a.__sort_ts - b.__sort_ts);
-
-  return FILTERED_ROWS;
+  els.rowCount.textContent = `Rows detected: ${allRows.length}`;
+  renderRows(filtered);
 }
 
-function render() {
-  const resultsEl = $("results");
-  resultsEl.innerHTML = "";
-
-  const rows = applyFilters();
-  $("rowCount").textContent = `Rows detected: ${rows.length}`;
-
-  for (const r of rows) resultsEl.appendChild(renderCard(r));
-}
-
-// ---------------- Init ----------------
 async function init() {
-  $("statusMessage").textContent = "Loading data…";
-  $("rowCount").textContent = "Rows detected: 0";
-
   try {
-    const resp = await fetch(CSV_PATH, { cache: "no-store" });
-    if (!resp.ok) throw new Error(`Unable to load CSV (${resp.status})`);
-    const text = await resp.text();
+    els.status.textContent = "Loading data…";
 
-    const parsed = parseCsv(text).filter((r) => r.some((c) => String(c).trim() !== ""));
-    if (!parsed.length) throw new Error("CSV appears empty");
+    // Cache bust to avoid stale fetch from GitHub Pages/CDN
+    const csvUrl = `./data/incidents.csv?v=${Date.now()}`;
+    const res = await fetch(csvUrl, { cache: "no-store" });
 
-    // Strip BOM from first header if present
-    let headers = parsed[0].map((h) => norm(h).replace(/\uFEFF/g, ""));
-    const dataRows = parsed.slice(1);
+    if (!res.ok) throw new Error(`Unable to load CSV (${res.status})`);
+    const csvText = await res.text();
 
-    const narrativeKey = detectNarrativeKey(headers);
+    const rawRows = parseCsv(csvText);
+    if (rawRows.length < 2) throw new Error("CSV has no data rows.");
 
-    ALL_ROWS = dataRows.map((vals) => mapRow(headers, vals, narrativeKey));
+    const headers = rawRows[0].map((h) => normalize(h));
+    narrativeKey = detectNarrativeKey(headers);
 
-    const states = Array.from(new Set(ALL_ROWS.map((r) => r.__state).filter(Boolean))).sort();
-    const types = Array.from(new Set(ALL_ROWS.map((r) => r.__event_type).filter(Boolean))).sort();
-    const phases = Array.from(new Set(ALL_ROWS.map((r) => r.__phase).filter(Boolean))).sort();
+    const dataRows = rawRows.slice(1);
+    allRows = dataRows
+      .map((cells) => {
+        const row = {};
+        for (let i = 0; i < headers.length; i++) {
+          row[headers[i]] = cells[i] ?? "";
+        }
+        // Common normalize for known keys
+        row.state = normalize(row.state);
+        row.city = normalize(row.city);
+        row.event_type = normalize(row.event_type);
+        row.phase = normalize(row.phase);
+        row.damage = normalize(row.damage);
+        row.injuries = normalize(row.injuries);
+        row.pob = normalize(row.pob);
+        row.facility = normalize(row.facility);
+        return row;
+      })
+      .filter((r) => Object.values(r).some((v) => normalize(v).length > 0));
 
-    fillSelect($("stateFilter"), states, "All states");
-    fillSelect($("eventFilter"), types, "All event types");
-    fillSelect($("phaseFilter"), phases, "All phases");
+    // Build dropdown options
+    buildOptions(els.state, allRows.map((r) => r.state), "All states");
+    buildOptions(els.event, allRows.map((r) => r.event_type), "All event types");
+    buildOptions(els.phase, allRows.map((r) => r.phase), "All phases");
 
-    $("search").addEventListener("input", render);
-    $("stateFilter").addEventListener("change", render);
-    $("eventFilter").addEventListener("change", render);
-    $("phaseFilter").addEventListener("change", render);
-    $("sortOrder").addEventListener("change", render);
-
-    // Helpful status info
-    $("statusMessage").textContent = narrativeKey
+    // Status line tells us what narrative column we’re using (super useful for debugging)
+    els.status.textContent = narrativeKey
       ? `Loaded OK (narrative column: ${narrativeKey})`
-      : "Loaded OK";
+      : "Loaded OK (no narrative column detected)";
 
-    $("rowCount").textContent = `Rows detected: ${ALL_ROWS.length}`;
-    render();
+    // Wire events
+    ["input", "change"].forEach((evt) => {
+      els.search.addEventListener(evt, applyFilters);
+      els.state.addEventListener(evt, applyFilters);
+      els.event.addEventListener(evt, applyFilters);
+      els.phase.addEventListener(evt, applyFilters);
+      els.sort.addEventListener(evt, applyFilters);
+    });
+
+    applyFilters();
   } catch (err) {
+    els.status.textContent = `Error: ${err.message}`;
+    els.rowCount.textContent = "Rows detected: 0";
+    els.results.innerHTML = "";
     console.error(err);
-    $("statusMessage").textContent = `Load failed: ${err.message}`;
-    $("rowCount").textContent = "Rows detected: 0";
   }
 }
 
-document.addEventListener("DOMContentLoaded", init);
+init();
