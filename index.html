@@ -1,63 +1,90 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Alaska Aviation Incidents</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <header class="site-header">
-      <div class="container">
-        <h1>Alaska Aviation Incidents</h1>
-        <p class="subtitle">Explore a sample of aviation incidents with search, filters, and sorting.</p>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Alaska Aviation Incidents</title>
+  <link rel="stylesheet" href="./styles.css" />
+
+  <!-- Small extras so the new card layout looks good even if styles.css is unchanged -->
+  <style>
+    .results { display: grid; gap: 16px; }
+    .card { background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.06); border: 1px solid rgba(0,0,0,.06); }
+    .cardHeadLine1 { font-weight: 800; font-size: 18px; letter-spacing: .2px; }
+    .cardHeadLine2 { font-weight: 800; margin-top: 6px; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top: 12px; }
+    .chip { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: rgba(0,0,0,.05); }
+    .chip b { font-weight: 700; margin-right: 6px; }
+    .narrWrap { margin-top: 12px; }
+    .narrPreview {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      line-height: 1.35;
+      color: rgba(0,0,0,.78);
+    }
+    .narrFull { display:none; white-space: pre-wrap; line-height: 1.35; color: rgba(0,0,0,.78); }
+    .card.expanded .narrPreview { display:none; }
+    .card.expanded .narrFull { display:block; }
+    .cardActions { margin-top: 10px; display:flex; justify-content:flex-end; }
+    .expandBtn { border: 1px solid rgba(0,0,0,.12); background: #fff; border-radius: 10px; padding: 8px 10px; cursor:pointer; font-weight: 600; }
+    .status { display:flex; justify-content:space-between; align-items:center; gap:10px; padding: 10px 0; color: rgba(0,0,0,.6); font-size: 13px; }
+  </style>
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="container">
+      <h1>Alaska Aviation Incidents</h1>
+      <p>Search & filter incident narratives and key fields (client-side, GitHub Pages).</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="controls">
+      <div class="control">
+        <label for="search">Search</label>
+        <input id="search" type="search" placeholder="Search narrative, city, airport, N-number(s), model…" autocomplete="off" />
       </div>
-    </header>
 
-    <main class="container">
-      <section class="controls">
-        <div class="control">
-          <label for="search">Search</label>
-          <input id="search" type="search" placeholder="Search narrative, location, or operator" />
-        </div>
-        <div class="control">
-          <label for="stateFilter">State</label>
-          <select id="stateFilter">
-            <option value="">All states</option>
-          </select>
-        </div>
-        <div class="control">
-          <label for="eventFilter">Event type</label>
-          <select id="eventFilter">
-            <option value="">All event types</option>
-          </select>
-        </div>
-        <div class="control">
-          <label for="phaseFilter">Phase</label>
-          <select id="phaseFilter">
-            <option value="">All phases</option>
-          </select>
-        </div>
-        <div class="control">
-          <label for="sortOrder">Sort</label>
-          <select id="sortOrder">
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-          </select>
-        </div>
-        <div class="control download">
-          <a class="button" href="./data/incidents.csv" download>Download CSV</a>
-        </div>
-      </section>
+      <div class="control">
+        <label for="stateFilter">State</label>
+        <select id="stateFilter"></select>
+      </div>
 
-      <section class="status">
-        <div id="statusMessage">Loading data…</div>
-        <div id="rowCount">Rows detected: 0</div>
-      </section>
+      <div class="control">
+        <label for="eventFilter">Event type</label>
+        <select id="eventFilter"></select>
+      </div>
 
-      <section id="results" class="results"></section>
-    </main>
+      <div class="control">
+        <label for="phaseFilter">Phase</label>
+        <select id="phaseFilter"></select>
+      </div>
 
-    <script src="./app.js"></script>
-  </body>
+      <div class="control">
+        <label for="sortOrder">Sort</label>
+        <select id="sortOrder">
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+        </select>
+      </div>
+
+      <div class="control download">
+        <label>&nbsp;</label>
+        <a class="button" href="./data/incidents.csv" download>Download CSV</a>
+      </div>
+    </section>
+
+    <section class="status">
+      <div id="statusMessage">Loading data…</div>
+      <div id="rowCount">Rows detected: 0</div>
+    </section>
+
+    <section id="results" class="results"></section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
 </html>
