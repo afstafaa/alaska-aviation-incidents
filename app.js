@@ -1,14 +1,13 @@
-/* app.js
-   Loads: data/incidents.csv
-   Expects CSV headers exactly like:
-   report_date,event_datetime_z,event_date,event_time_z,city,state,airport_code,facility,
-   aircraft_primary,aircraft_primary_model,n_numbers,phase,event_type,pob,injuries,damage,
-   form_8020_9,group_id,group_size,context_parens,raw_narrative
-*/
+// app.js — single-source UI (no duplicate rendering)
+// Expects these element IDs in index.html:
+// search, stateFilter, eventFilter, phaseFilter, sortOrder, statusMessage, rowCount, results
+// Loads: ./data/incidents.csv
+// Uses new headers including: n_numbers, raw_narrative, event_type, phase, etc.
 
-const CSV_URL = "data/incidents.csv";
+const CSV_URL = "./data/incidents.csv";
 
-/** Robust CSV parser (handles quoted fields + commas + newlines in quotes) */
+const $ = (id) => document.getElementById(id);
+
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -30,14 +29,13 @@ function parseCSV(text) {
     }
 
     if (!inQuotes && (c === "," || c === "\n" || c === "\r")) {
-      if (c === "\r" && next === "\n") i++; // handle CRLF
+      if (c === "\r" && next === "\n") i++; // CRLF
       row.push(field);
       field = "";
 
       if (c === "\n" || c === "\r") {
-        // Skip entirely empty trailing lines
-        const isEmptyRow = row.length === 1 && row[0] === "";
-        if (!isEmptyRow) rows.push(row);
+        // ignore completely empty trailing lines
+        if (!(row.length === 1 && row[0] === "")) rows.push(row);
         row = [];
       }
       continue;
@@ -46,15 +44,18 @@ function parseCSV(text) {
     field += c;
   }
 
-  // last field
   row.push(field);
   if (!(row.length === 1 && row[0] === "")) rows.push(row);
 
-  if (rows.length === 0) return [];
+  if (!rows.length) return [];
 
-  const headers = rows[0].map((h) => (h || "").trim());
+  // handle BOM on first header
+  const headers = rows[0].map((h, idx) => {
+    const v = (h ?? "").trim();
+    return idx === 0 ? v.replace(/^\uFEFF/, "") : v;
+  });
+
   const out = [];
-
   for (let r = 1; r < rows.length; r++) {
     const obj = {};
     const cols = rows[r];
@@ -66,106 +67,69 @@ function parseCSV(text) {
   return out;
 }
 
-function el(tag, attrs = {}, children = []) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") node.className = v;
-    else if (k === "text") node.textContent = v;
-    else if (k === "html") node.innerHTML = v;
-    else node.setAttribute(k, v);
-  }
-  for (const ch of children) node.appendChild(ch);
-  return node;
+function uniqSorted(values) {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" })
+  );
 }
 
-function ensureUI() {
-  // If your existing index.html already has these, we reuse them.
-  let root = document.getElementById("app");
-  if (!root) {
-    root = el("div", { id: "app" });
-    document.body.appendChild(root);
+function setOptions(selectEl, items, allLabel) {
+  const current = selectEl.value;
+  selectEl.innerHTML = "";
+
+  const optAll = document.createElement("option");
+  optAll.value = "";
+  optAll.textContent = allLabel;
+  selectEl.appendChild(optAll);
+
+  for (const v of items) {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    selectEl.appendChild(opt);
   }
 
-  let searchInput = document.getElementById("searchInput");
-  let list = document.getElementById("incidentsList");
-  let count = document.getElementById("resultCount");
-
-  if (!searchInput || !list) {
-    root.innerHTML = "";
-
-    const header = el("div", { class: "topbar" }, [
-      el("div", { class: "titlewrap" }, [
-        el("h1", { class: "title", text: "Alaska Aviation Incidents" }),
-        el("div", {
-          class: "subtitle",
-          text: "Searchable view of incident CSV narratives and fields",
-        }),
-      ]),
-      el("div", { class: "controls" }, [
-        el("input", {
-          id: "searchInput",
-          type: "search",
-          placeholder:
-            "Search city, airport, N-number(s), model, phase, narrative…",
-          autocomplete: "off",
-        }),
-        el("div", { id: "resultCount", class: "count", text: "" }),
-      ]),
-    ]);
-
-    list = el("div", { id: "incidentsList", class: "list" });
-
-    root.appendChild(header);
-    root.appendChild(list);
-
-    searchInput = document.getElementById("searchInput");
-    count = document.getElementById("resultCount");
+  // preserve selection if still available
+  if ([...selectEl.options].some((o) => o.value === current)) {
+    selectEl.value = current;
+  } else {
+    selectEl.value = "";
   }
-
-  return { root, searchInput, list, count };
 }
 
-const FIELD_LABELS = [
-  ["report_date", "Report Date"],
-  ["event_datetime_z", "Event Date/Time (Z)"],
-  ["event_date", "Event Date"],
-  ["event_time_z", "Event Time (Z)"],
-  ["city", "City"],
-  ["state", "State"],
-  ["airport_code", "Airport Code"],
-  ["facility", "Facility"],
-  ["aircraft_primary", "Aircraft"],
-  ["aircraft_primary_model", "Model"],
-  ["n_numbers", "N-number(s)"],
-  ["phase", "Phase"],
-  ["event_type", "Event Type"],
-  ["pob", "POB"],
-  ["injuries", "Injuries"],
-  ["damage", "Damage"],
-  ["form_8020_9", "Form 8020-9"],
-  ["group_id", "Group ID"],
-  ["group_size", "Group Size"],
-  ["context_parens", "Context (parens)"],
-];
-
-function formatValue(key, val) {
-  if (!val) return "";
-  if (key === "form_8020_9") {
-    // Normalize booleans-ish values
-    const v = val.toLowerCase();
-    if (["y", "yes", "true", "1"].includes(v)) return "Yes";
-    if (["n", "no", "false", "0"].includes(v)) return "No";
+function parseDateScore(rec) {
+  // Prefer ISO-like event_datetime_z, fallback to US event_date, fallback report_date
+  const iso = rec.event_datetime_z;
+  if (iso) {
+    const t = Date.parse(iso);
+    if (!Number.isNaN(t)) return t;
   }
-  return val;
+
+  const us = rec.event_date; // e.g. 8/18/2025
+  if (us) {
+    const m = us.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const mm = Number(m[1]);
+      const dd = Number(m[2]);
+      const yyyy = Number(m[3]);
+      const t = Date.UTC(yyyy, mm - 1, dd);
+      if (!Number.isNaN(t)) return t;
+    }
+  }
+
+  const rep = rec.report_date; // e.g. 2025-08-26
+  if (rep) {
+    const t = Date.parse(rep);
+    if (!Number.isNaN(t)) return t;
+  }
+
+  return 0;
 }
 
-function recordMatches(rec, q) {
+function matchesSearch(rec, q) {
   if (!q) return true;
   const hay = [
-    rec.report_date,
-    rec.event_datetime_z,
-    rec.event_date,
-    rec.event_time_z,
+    rec.raw_narrative,
     rec.city,
     rec.state,
     rec.airport_code,
@@ -175,13 +139,10 @@ function recordMatches(rec, q) {
     rec.n_numbers,
     rec.phase,
     rec.event_type,
-    rec.pob,
     rec.injuries,
     rec.damage,
+    rec.pob,
     rec.group_id,
-    rec.group_size,
-    rec.context_parens,
-    rec.raw_narrative,
   ]
     .filter(Boolean)
     .join(" ")
@@ -191,128 +152,185 @@ function recordMatches(rec, q) {
 }
 
 function buildCard(rec) {
-  // Top line title: City, ST — N-number(s) — Date
-  const titleBits = [];
-  const loc = [rec.city, rec.state].filter(Boolean).join(", ");
-  if (loc) titleBits.push(loc);
-  if (rec.airport_code) titleBits.push(rec.airport_code);
-  const nnums = rec.n_numbers ? rec.n_numbers : "";
-  const date = rec.event_date ? rec.event_date : rec.report_date ? rec.report_date : "";
-  const title = [titleBits.join(" — "), nnums, date].filter(Boolean).join(" — ");
+  const city = rec.city || "";
+  const state = rec.state || "";
+  const airport = rec.airport_code || "";
+  const nnums = rec.n_numbers || "";
+  const date = rec.event_date || rec.report_date || "";
 
-  const metaGrid = el("div", { class: "meta" });
-  for (const [key, label] of FIELD_LABELS) {
-    const v = formatValue(key, rec[key]);
-    if (!v) continue;
+  const titleParts = [];
+  const loc = [city, state].filter(Boolean).join(", ");
+  if (loc) titleParts.push(loc);
+  if (airport) titleParts.push(airport);
+  if (nnums) titleParts.push(nnums);
+  if (date) titleParts.push(date);
 
-    metaGrid.appendChild(
-      el("div", { class: "metaRow" }, [
-        el("div", { class: "metaLabel", text: label }),
-        el("div", { class: "metaValue", text: v }),
-      ])
-    );
+  const title = titleParts.join(" — ") || "Incident";
+
+  const sub = [rec.aircraft_primary, rec.aircraft_primary_model]
+    .filter(Boolean)
+    .join(" — ");
+
+  const fields = [
+    ["Report Date", rec.report_date],
+    ["Event Date/Time (Z)", rec.event_datetime_z],
+    ["Event Date", rec.event_date],
+    ["Event Time (Z)", rec.event_time_z],
+    ["City", rec.city],
+    ["State", rec.state],
+    ["Airport Code", rec.airport_code],
+    ["Facility", rec.facility],
+    ["Aircraft", rec.aircraft_primary],
+    ["Model", rec.aircraft_primary_model],
+    ["N-number(s)", rec.n_numbers],
+    ["Phase", rec.phase],
+    ["Event Type", rec.event_type],
+    ["POB", rec.pob],
+    ["Injuries", rec.injuries],
+    ["Damage", rec.damage],
+    ["Form 8020-9", rec.form_8020_9],
+    ["Group ID", rec.group_id],
+    ["Group Size", rec.group_size],
+    ["Context (parens)", rec.context_parens],
+  ].filter(([, v]) => v && v.trim() !== "");
+
+  const card = document.createElement("article");
+  card.className = "card";
+
+  const h = document.createElement("div");
+  h.className = "cardHeader";
+
+  const h2 = document.createElement("h2");
+  h2.className = "cardTitle";
+  h2.textContent = title;
+
+  const subEl = document.createElement("div");
+  subEl.className = "cardSub";
+  subEl.textContent = sub;
+
+  h.appendChild(h2);
+  if (sub) h.appendChild(subEl);
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+
+  for (const [label, value] of fields) {
+    const row = document.createElement("div");
+    row.className = "metaRow";
+
+    const l = document.createElement("div");
+    l.className = "metaLabel";
+    l.textContent = label;
+
+    const v = document.createElement("div");
+    v.className = "metaValue";
+    v.textContent = value;
+
+    row.appendChild(l);
+    row.appendChild(v);
+    meta.appendChild(row);
   }
 
-  const narrative = (rec.raw_narrative || "").trim();
-  const narrativeBlock = el("div", { class: "narrative" }, [
-    el("div", { class: "narrLabel", text: "Narrative" }),
-    el("div", {
-      class: "narrText",
-      text: narrative ? narrative : "No narrative provided.",
-    }),
-  ]);
+  const narWrap = document.createElement("div");
+  narWrap.className = "narrative";
 
-  return el("article", { class: "card" }, [
-    el("div", { class: "cardHeader" }, [
-      el("h2", { class: "cardTitle", text: title || "Incident" }),
-      el("div", {
-        class: "cardSub",
-        text: [rec.aircraft_primary, rec.aircraft_primary_model]
-          .filter(Boolean)
-          .join(" — "),
-      }),
-    ]),
-    metaGrid,
-    narrativeBlock,
-  ]);
+  const narLabel = document.createElement("div");
+  narLabel.className = "narrLabel";
+  narLabel.textContent = "Narrative";
+
+  const narText = document.createElement("div");
+  narText.className = "narrText";
+  narText.textContent = (rec.raw_narrative || "").trim() || "No narrative provided.";
+
+  narWrap.appendChild(narLabel);
+  narWrap.appendChild(narText);
+
+  card.appendChild(h);
+  card.appendChild(meta);
+  card.appendChild(narWrap);
+
+  return card;
 }
 
-function render(listEl, countEl, records, query) {
-  listEl.innerHTML = "";
-  const q = (query || "").trim().toLowerCase();
+function render(records, ui) {
+  const q = (ui.search.value || "").trim().toLowerCase();
+  const state = ui.state.value;
+  const eventType = ui.event.value;
+  const phase = ui.phase.value;
+  const sort = ui.sort.value || "newest";
 
-  const filtered = records.filter((r) => recordMatches(r, q));
-  countEl.textContent = `${filtered.length.toLocaleString()} result${
-    filtered.length === 1 ? "" : "s"
-  }`;
+  let filtered = records.filter((r) => {
+    if (state && (r.state || "") !== state) return false;
+    if (eventType && (r.event_type || "") !== eventType) return false;
+    if (phase && (r.phase || "") !== phase) return false;
+    if (!matchesSearch(r, q)) return false;
+    return true;
+  });
 
+  filtered.sort((a, b) => {
+    const da = parseDateScore(a);
+    const db = parseDateScore(b);
+    return sort === "oldest" ? da - db : db - da;
+  });
+
+  ui.results.innerHTML = "";
   const frag = document.createDocumentFragment();
-  for (const rec of filtered) frag.appendChild(buildCard(rec));
-  listEl.appendChild(frag);
+  for (const r of filtered) frag.appendChild(buildCard(r));
+  ui.results.appendChild(frag);
+
+  ui.rowCount.textContent = `Rows detected: ${records.length}`;
 }
 
 async function init() {
-  const { searchInput, list, count } = ensureUI();
+  const ui = {
+    search: $("search"),
+    state: $("stateFilter"),
+    event: $("eventFilter"),
+    phase: $("phaseFilter"),
+    sort: $("sortOrder"),
+    status: $("statusMessage"),
+    rowCount: $("rowCount"),
+    results: $("results"),
+  };
 
-  let records = [];
-  try {
-    const res = await fetch(CSV_URL, { cache: "no-store" });
-    if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
-    const text = await res.text();
-    records = parseCSV(text);
-  } catch (e) {
-    list.innerHTML = "";
-    list.appendChild(
-      el("div", { class: "error" }, [
-        el("div", { class: "errorTitle", text: "Could not load incidents.csv" }),
-        el("div", { class: "errorText", text: String(e) }),
-        el("div", {
-          class: "errorText",
-          text: `Check that ${CSV_URL} exists in your repo and GitHub Pages is serving it.`,
-        }),
-      ])
-    );
-    if (count) count.textContent = "";
-    return;
+  // If any IDs are missing, fail loudly (prevents “ghost” UI behavior)
+  for (const [k, el] of Object.entries(ui)) {
+    if (!el) throw new Error(`Missing required element id="${k === "status" ? "statusMessage" : k}"`);
   }
 
-  // Optional: sanity check for expected headers
-  const expected = new Set([
-    "report_date",
-    "event_datetime_z",
-    "event_date",
-    "event_time_z",
-    "city",
-    "state",
-    "airport_code",
-    "facility",
-    "aircraft_primary",
-    "aircraft_primary_model",
-    "n_numbers",
-    "phase",
-    "event_type",
-    "pob",
-    "injuries",
-    "damage",
-    "form_8020_9",
-    "group_id",
-    "group_size",
-    "context_parens",
-    "raw_narrative",
-  ]);
-  const have = records[0] ? Object.keys(records[0]) : [];
-  const missing = [...expected].filter((h) => !have.includes(h));
-  if (missing.length) {
-    console.warn("CSV missing expected headers:", missing);
-  }
+  ui.status.textContent = "Loading data…";
 
-  render(list, count, records, "");
+  const res = await fetch(CSV_URL, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to load ${CSV_URL}: ${res.status} ${res.statusText}`);
+  const text = await res.text();
+
+  const records = parseCSV(text);
+
+  // Populate dropdowns from CSV
+  setOptions(ui.state, uniqSorted(records.map((r) => r.state)), "All states");
+  setOptions(ui.event, uniqSorted(records.map((r) => r.event_type)), "All event types");
+  setOptions(ui.phase, uniqSorted(records.map((r) => r.phase)), "All phases");
+
+  ui.status.textContent = "";
+  render(records, ui);
 
   let t = null;
-  searchInput.addEventListener("input", () => {
+  const rerender = () => {
     clearTimeout(t);
-    t = setTimeout(() => render(list, count, records, searchInput.value), 80);
-  });
+    t = setTimeout(() => render(records, ui), 80);
+  };
+
+  ui.search.addEventListener("input", rerender);
+  ui.state.addEventListener("change", rerender);
+  ui.event.addEventListener("change", rerender);
+  ui.phase.addEventListener("change", rerender);
+  ui.sort.addEventListener("change", rerender);
 }
 
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", () => {
+  init().catch((err) => {
+    const status = $("statusMessage");
+    if (status) status.textContent = `Error: ${err.message}`;
+    console.error(err);
+  });
+});
