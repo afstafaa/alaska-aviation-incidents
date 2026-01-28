@@ -300,7 +300,8 @@ async function init() {
     if (raw.length < 2) throw new Error("CSV has no data rows.");
 
     const headers = raw[0].map((h) => norm(h));
-    narrativeKey = detectNarrativeKey(headers);
+    narrativeKey = headers.find(h => h.trim().toLowerCase() === "raw_narrative")
+    || detectNarrativeKey(headers);
 
     const data = raw.slice(1);
 
