@@ -1,14 +1,25 @@
-// app.js — single-source UI (no duplicate rendering)
-// Expects these element IDs in index.html:
-// search, stateFilter, eventFilter, phaseFilter, sortOrder, statusMessage, rowCount, results
-// Loads: ./data/incidents.csv
-// Uses new headers including: n_numbers, raw_narrative, event_type, phase, etc.
-
+// app.js — single UI, dropdown filters work, narrative preview + expand
 const CSV_URL = "./data/incidents.csv";
 
-const $ = (id) => document.getElementById(id);
+const ui = {
+  search: document.getElementById("search"),
+  state: document.getElementById("stateFilter"),
+  event: document.getElementById("eventFilter"),
+  phase: document.getElementById("phaseFilter"),
+  sort: document.getElementById("sortOrder"),
+  status: document.getElementById("statusMessage"),
+  rowCount: document.getElementById("rowCount"),
+  results: document.getElementById("results"),
+};
+
+function assertUI() {
+  for (const [k, el] of Object.entries(ui)) {
+    if (!el) throw new Error(`Missing required element for "${k}"`);
+  }
+}
 
 function parseCSV(text) {
+  // Robust CSV parser: quoted commas + newlines + escaped quotes ("")
   const rows = [];
   let row = [];
   let field = "";
@@ -19,22 +30,16 @@ function parseCSV(text) {
     const next = text[i + 1];
 
     if (c === '"') {
-      if (inQuotes && next === '"') {
-        field += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
+      if (inQuotes && next === '"') { field += '"'; i++; }
+      else { inQuotes = !inQuotes; }
       continue;
     }
 
     if (!inQuotes && (c === "," || c === "\n" || c === "\r")) {
-      if (c === "\r" && next === "\n") i++; // CRLF
+      if (c === "\r" && next === "\n") i++;
       row.push(field);
       field = "";
-
       if (c === "\n" || c === "\r") {
-        // ignore completely empty trailing lines
         if (!(row.length === 1 && row[0] === "")) rows.push(row);
         row = [];
       }
@@ -49,255 +54,246 @@ function parseCSV(text) {
 
   if (!rows.length) return [];
 
-  // handle BOM on first header
   const headers = rows[0].map((h, idx) => {
     const v = (h ?? "").trim();
-    return idx === 0 ? v.replace(/^\uFEFF/, "") : v;
+    return idx === 0 ? v.replace(/^\uFEFF/, "") : v; // strip BOM
   });
 
   const out = [];
   for (let r = 1; r < rows.length; r++) {
     const obj = {};
-    const cols = rows[r];
     for (let c = 0; c < headers.length; c++) {
-      obj[headers[c]] = (cols[c] ?? "").trim();
+      obj[headers[c]] = (rows[r][c] ?? "").trim();
     }
     out.push(obj);
   }
   return out;
 }
 
-function uniqSorted(values) {
-  return Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
+function uniqSorted(list) {
+  return Array.from(new Set(list.filter(Boolean))).sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: "base" })
   );
 }
 
-function setOptions(selectEl, items, allLabel) {
-  const current = selectEl.value;
+function setOptions(selectEl, values, allLabel) {
   selectEl.innerHTML = "";
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = allLabel;
+  selectEl.appendChild(all);
 
-  const optAll = document.createElement("option");
-  optAll.value = "";
-  optAll.textContent = allLabel;
-  selectEl.appendChild(optAll);
-
-  for (const v of items) {
+  for (const v of values) {
     const opt = document.createElement("option");
     opt.value = v;
     opt.textContent = v;
     selectEl.appendChild(opt);
   }
-
-  // preserve selection if still available
-  if ([...selectEl.options].some((o) => o.value === current)) {
-    selectEl.value = current;
-  } else {
-    selectEl.value = "";
-  }
+  selectEl.value = "";
 }
 
-function parseDateScore(rec) {
-  // Prefer ISO-like event_datetime_z, fallback to US event_date, fallback report_date
-  const iso = rec.event_datetime_z;
-  if (iso) {
-    const t = Date.parse(iso);
+function mmddyyyyToParts(s) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((s || "").trim());
+  if (!m) return null;
+  return { mm: +m[1], dd: +m[2], yyyy: +m[3] };
+}
+
+function zuluToUTCDate(event_date, event_time_z) {
+  const d = mmddyyyyToParts(event_date);
+  if (!d) return null;
+
+  const t = (event_time_z || "").replace(/[^\d]/g, "");
+  if (!t) return null;
+  const t4 = t.padStart(4, "0");
+  const hh = +t4.slice(0, 2);
+  const mi = +t4.slice(2, 4);
+
+  const utcMs = Date.UTC(d.yyyy, d.mm - 1, d.dd, hh, mi, 0);
+  const dt = new Date(utcMs);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function bestDateScore(r) {
+  // Prefer event_datetime_z (ISO Z), else event_date+event_time_z, else report_date
+  if (r.event_datetime_z) {
+    const t = Date.parse(r.event_datetime_z);
     if (!Number.isNaN(t)) return t;
   }
+  const dt = zuluToUTCDate(r.event_date, r.event_time_z);
+  if (dt) return dt.getTime();
 
-  const us = rec.event_date; // e.g. 8/18/2025
-  if (us) {
-    const m = us.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) {
-      const mm = Number(m[1]);
-      const dd = Number(m[2]);
-      const yyyy = Number(m[3]);
-      const t = Date.UTC(yyyy, mm - 1, dd);
-      if (!Number.isNaN(t)) return t;
-    }
-  }
-
-  const rep = rec.report_date; // e.g. 2025-08-26
-  if (rep) {
-    const t = Date.parse(rep);
+  if (r.report_date) {
+    const t = Date.parse(r.report_date);
     if (!Number.isNaN(t)) return t;
   }
-
   return 0;
 }
 
-function matchesSearch(rec, q) {
+function formatAKLocal(utcDate) {
+  // Returns e.g. "11:18 AKDT" or "10:18 AKST"
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Anchorage",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  });
+
+  const parts = fmt.formatToParts(utcDate);
+  const hh = parts.find(p => p.type === "hour")?.value ?? "";
+  const mm = parts.find(p => p.type === "minute")?.value ?? "";
+  const tz = parts.find(p => p.type === "timeZoneName")?.value ?? "";
+  // tz usually comes back as AKDT/AKST
+  return `${hh}:${mm} ${tz}`;
+}
+
+function buildTimeDisplay(r) {
+  const date = r.event_date || "";
+  const z = r.event_time_z || "";
+  if (!date || !z) return date ? `${date}` : "";
+
+  // If outside AK: only Zulu
+  if ((r.state || "").toUpperCase() !== "AK") {
+    return `${date} (${z})`;
+  }
+
+  // AK: show Zulu + Alaska local
+  const utc = zuluToUTCDate(date, z);
+  if (!utc) return `${date} (${z})`;
+  const local = formatAKLocal(utc);
+  return `${date} (${z} / ${local})`;
+}
+
+function matchesSearch(r, q) {
   if (!q) return true;
   const hay = [
-    rec.raw_narrative,
-    rec.city,
-    rec.state,
-    rec.airport_code,
-    rec.facility,
-    rec.aircraft_primary,
-    rec.aircraft_primary_model,
-    rec.n_numbers,
-    rec.phase,
-    rec.event_type,
-    rec.injuries,
-    rec.damage,
-    rec.pob,
-    rec.group_id,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+    r.raw_narrative,
+    r.city,
+    r.state,
+    r.airport_code,
+    r.facility,
+    r.aircraft_primary,
+    r.aircraft_primary_model,
+    r.n_numbers,
+    r.phase,
+    r.event_type,
+    r.pob,
+    r.injuries,
+    r.damage,
+    r.form_8020_9,
+    r.report_date,
+  ].filter(Boolean).join(" ").toLowerCase();
 
   return hay.includes(q);
 }
 
-function buildCard(rec) {
-  const city = rec.city || "";
-  const state = rec.state || "";
-  const airport = rec.airport_code || "";
-  const nnums = rec.n_numbers || "";
-  const date = rec.event_date || rec.report_date || "";
+function chip(label, value) {
+  const s = document.createElement("span");
+  s.className = "chip";
+  const b = document.createElement("b");
+  b.textContent = `${label}:`;
+  s.appendChild(b);
+  s.appendChild(document.createTextNode(value));
+  return s;
+}
 
-  const titleParts = [];
-  const loc = [city, state].filter(Boolean).join(", ");
-  if (loc) titleParts.push(loc);
-  if (airport) titleParts.push(airport);
-  if (nnums) titleParts.push(nnums);
-  if (date) titleParts.push(date);
-
-  const title = titleParts.join(" — ") || "Incident";
-
-  const sub = [rec.aircraft_primary, rec.aircraft_primary_model]
-    .filter(Boolean)
-    .join(" — ");
-
-  const fields = [
-    ["Report Date", rec.report_date],
-    ["Event Date/Time (Z)", rec.event_datetime_z],
-    ["Event Date", rec.event_date],
-    ["Event Time (Z)", rec.event_time_z],
-    ["City", rec.city],
-    ["State", rec.state],
-    ["Airport Code", rec.airport_code],
-    ["Facility", rec.facility],
-    ["Aircraft", rec.aircraft_primary],
-    ["Model", rec.aircraft_primary_model],
-    ["N-number(s)", rec.n_numbers],
-    ["Phase", rec.phase],
-    ["Event Type", rec.event_type],
-    ["POB", rec.pob],
-    ["Injuries", rec.injuries],
-    ["Damage", rec.damage],
-    ["Form 8020-9", rec.form_8020_9],
-    ["Group ID", rec.group_id],
-    ["Group Size", rec.group_size],
-    ["Context (parens)", rec.context_parens],
-  ].filter(([, v]) => v && v.trim() !== "");
-
+function buildCard(r) {
   const card = document.createElement("article");
   card.className = "card";
 
-  const h = document.createElement("div");
-  h.className = "cardHeader";
+  // Line 1: CITY, ST (bold)
+  const line1 = document.createElement("div");
+  line1.className = "cardHeadLine1";
+  const city = (r.city || "").trim();
+  const st = (r.state || "").trim();
+  line1.textContent = [city, st].filter(Boolean).join(", ") || "UNKNOWN LOCATION";
 
-  const h2 = document.createElement("h2");
-  h2.className = "cardTitle";
-  h2.textContent = title;
+  // Line 2: N-numbers • model • event date (zulu / ak local)
+  const line2 = document.createElement("div");
+  line2.className = "cardHeadLine2";
+  const nn = (r.n_numbers || "").trim();
+  const model = (r.aircraft_primary_model || "").trim();
+  const timeDisp = buildTimeDisplay(r);
+  const parts = [nn, model, timeDisp].filter(Boolean);
+  line2.textContent = parts.join(" • ");
 
-  const subEl = document.createElement("div");
-  subEl.className = "cardSub";
-  subEl.textContent = sub;
+  // Chips: Report Date • Phase • Type • POB • Injuries • Damage • Form 8020-9
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  if (r.report_date) chips.appendChild(chip("Report", r.report_date));
+  if (r.phase) chips.appendChild(chip("Phase", r.phase));
+  if (r.event_type) chips.appendChild(chip("Type", r.event_type));
+  if (r.pob) chips.appendChild(chip("POB", r.pob));
+  if (r.injuries) chips.appendChild(chip("Injuries", r.injuries));
+  if (r.damage) chips.appendChild(chip("Damage", r.damage));
+  if (r.form_8020_9) chips.appendChild(chip("8020-9", r.form_8020_9));
 
-  h.appendChild(h2);
-  if (sub) h.appendChild(subEl);
+  // Narrative preview + full
+  const narrWrap = document.createElement("div");
+  narrWrap.className = "narrWrap";
 
-  const meta = document.createElement("div");
-  meta.className = "meta";
+  const preview = document.createElement("div");
+  preview.className = "narrPreview";
+  preview.textContent = (r.raw_narrative || "").trim() || "No narrative provided.";
 
-  for (const [label, value] of fields) {
-    const row = document.createElement("div");
-    row.className = "metaRow";
+  const full = document.createElement("div");
+  full.className = "narrFull";
+  full.textContent = (r.raw_narrative || "").trim() || "No narrative provided.";
 
-    const l = document.createElement("div");
-    l.className = "metaLabel";
-    l.textContent = label;
+  narrWrap.appendChild(preview);
+  narrWrap.appendChild(full);
 
-    const v = document.createElement("div");
-    v.className = "metaValue";
-    v.textContent = value;
+  // Expand button (narrative only)
+  const actions = document.createElement("div");
+  actions.className = "cardActions";
+  const btn = document.createElement("button");
+  btn.className = "expandBtn";
+  btn.type = "button";
+  btn.textContent = "Expand";
+  btn.addEventListener("click", () => {
+    const expanded = card.classList.toggle("expanded");
+    btn.textContent = expanded ? "Collapse" : "Expand";
+  });
+  actions.appendChild(btn);
 
-    row.appendChild(l);
-    row.appendChild(v);
-    meta.appendChild(row);
-  }
-
-  const narWrap = document.createElement("div");
-  narWrap.className = "narrative";
-
-  const narLabel = document.createElement("div");
-  narLabel.className = "narrLabel";
-  narLabel.textContent = "Narrative";
-
-  const narText = document.createElement("div");
-  narText.className = "narrText";
-  narText.textContent = (rec.raw_narrative || "").trim() || "No narrative provided.";
-
-  narWrap.appendChild(narLabel);
-  narWrap.appendChild(narText);
-
-  card.appendChild(h);
-  card.appendChild(meta);
-  card.appendChild(narWrap);
+  card.appendChild(line1);
+  card.appendChild(line2);
+  if (chips.childNodes.length) card.appendChild(chips);
+  card.appendChild(narrWrap);
+  card.appendChild(actions);
 
   return card;
 }
 
-function render(records, ui) {
+function render(allRecords) {
   const q = (ui.search.value || "").trim().toLowerCase();
-  const state = ui.state.value;
-  const eventType = ui.event.value;
-  const phase = ui.phase.value;
+  const st = ui.state.value;
+  const ev = ui.event.value;
+  const ph = ui.phase.value;
   const sort = ui.sort.value || "newest";
 
-  let filtered = records.filter((r) => {
-    if (state && (r.state || "") !== state) return false;
-    if (eventType && (r.event_type || "") !== eventType) return false;
-    if (phase && (r.phase || "") !== phase) return false;
+  let recs = allRecords.filter(r => {
+    if (st && (r.state || "") !== st) return false;
+    if (ev && (r.event_type || "") !== ev) return false;
+    if (ph && (r.phase || "") !== ph) return false;
     if (!matchesSearch(r, q)) return false;
     return true;
   });
 
-  filtered.sort((a, b) => {
-    const da = parseDateScore(a);
-    const db = parseDateScore(b);
-    return sort === "oldest" ? da - db : db - da;
+  recs.sort((a, b) => {
+    const da = bestDateScore(a);
+    const db = bestDateScore(b);
+    return sort === "oldest" ? (da - db) : (db - da);
   });
 
   ui.results.innerHTML = "";
   const frag = document.createDocumentFragment();
-  for (const r of filtered) frag.appendChild(buildCard(r));
+  for (const r of recs) frag.appendChild(buildCard(r));
   ui.results.appendChild(frag);
-
-  ui.rowCount.textContent = `Rows detected: ${records.length}`;
 }
 
 async function init() {
-  const ui = {
-    search: $("search"),
-    state: $("stateFilter"),
-    event: $("eventFilter"),
-    phase: $("phaseFilter"),
-    sort: $("sortOrder"),
-    status: $("statusMessage"),
-    rowCount: $("rowCount"),
-    results: $("results"),
-  };
-
-  // If any IDs are missing, fail loudly (prevents “ghost” UI behavior)
-  for (const [k, el] of Object.entries(ui)) {
-    if (!el) throw new Error(`Missing required element id="${k === "status" ? "statusMessage" : k}"`);
-  }
-
+  assertUI();
   ui.status.textContent = "Loading data…";
 
   const res = await fetch(CSV_URL, { cache: "no-store" });
@@ -305,19 +301,18 @@ async function init() {
   const text = await res.text();
 
   const records = parseCSV(text);
-
-  // Populate dropdowns from CSV
-  setOptions(ui.state, uniqSorted(records.map((r) => r.state)), "All states");
-  setOptions(ui.event, uniqSorted(records.map((r) => r.event_type)), "All event types");
-  setOptions(ui.phase, uniqSorted(records.map((r) => r.phase)), "All phases");
-
+  ui.rowCount.textContent = `Rows detected: ${records.length}`;
   ui.status.textContent = "";
-  render(records, ui);
 
+  setOptions(ui.state, uniqSorted(records.map(r => r.state)), "All states");
+  setOptions(ui.event, uniqSorted(records.map(r => r.event_type)), "All event types");
+  setOptions(ui.phase, uniqSorted(records.map(r => r.phase)), "All phases");
+
+  // Render + debounce
   let t = null;
   const rerender = () => {
     clearTimeout(t);
-    t = setTimeout(() => render(records, ui), 80);
+    t = setTimeout(() => render(records), 80);
   };
 
   ui.search.addEventListener("input", rerender);
@@ -325,12 +320,13 @@ async function init() {
   ui.event.addEventListener("change", rerender);
   ui.phase.addEventListener("change", rerender);
   ui.sort.addEventListener("change", rerender);
+
+  render(records);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  init().catch((err) => {
-    const status = $("statusMessage");
-    if (status) status.textContent = `Error: ${err.message}`;
+  init().catch(err => {
     console.error(err);
+    ui.status.textContent = `Error: ${err.message}`;
   });
 });
