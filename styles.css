@@ -140,13 +140,7 @@ a{ color: inherit; }
   font-size: 15px;
 }
 
-  margin-top: 10px;
-  display:flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.l3,
+.l3
 .narrPreview{
   font-size: 10px !important;
   line-height: 1.35 !important;
