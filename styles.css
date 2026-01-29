@@ -194,3 +194,8 @@ a{ color: inherit; }
   }
   .download{ grid-column: 1 / -1; }
 }
+
+.narrPreview,
+.narrFull{
+  margin-bottom: 12px !important;
+}
