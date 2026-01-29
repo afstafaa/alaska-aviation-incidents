@@ -1,349 +1,443 @@
-// app.js — Alaska Aviation Incidents (GitHub Pages, client-side)
-// ✅ Robust CSV parser (handles quotes, commas, and newlines inside quotes)
-// ✅ Auto-detects narrative column (prefers context_parens, then narrative, then anything w/ "narr")
-// ✅ Uses the detected narrative column for display
+// app.js
+(() => {
+  const CSV_PATH = "./data/incidents.csv";
 
-const $ = (id) => document.getElementById(id);
+  const el = (id) => document.getElementById(id);
+  const resultsEl = el("results");
+  const statusEl = el("statusMessage");
+  const rowCountEl = el("rowCount");
 
-const els = {
-  search: $("search"),
-  state: $("stateFilter"),
-  event: $("eventFilter"),
-  phase: $("phaseFilter"),
-  sort: $("sortOrder"),
-  status: $("statusMessage"),
-  rowCount: $("rowCount"),
-  results: $("results"),
-};
+  const searchEl = el("search");
+  const stateFilterEl = el("stateFilter");
+  const eventFilterEl = el("eventFilter");
+  const phaseFilterEl = el("phaseFilter");
+  const sortOrderEl = el("sortOrder");
 
-let allRows = [];
-let narrativeKey = null;
+  let allRows = [];
+  let filteredRows = [];
 
-const norm = (v) => (v ?? "").toString().trim();
+  // --- Helpers: column mapping (handles different header names) ---
+  const pick = (row, ...keys) => {
+    for (const k of keys) {
+      if (!k) continue;
+      if (row[k] != null && String(row[k]).trim() !== "") return String(row[k]).trim();
+    }
+    return "";
+  };
 
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let i = 0;
-  let inQuotes = false;
+  const boolishYesNo = (v) => {
+    const s = String(v ?? "").trim().toLowerCase();
+    if (!s) return "Unknown";
+    if (["yes", "y", "true", "1"].includes(s)) return "Yes";
+    if (["no", "n", "false", "0"].includes(s)) return "No";
+    return String(v).trim();
+  };
 
-  const s = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  // Robust CSV parser that supports commas/newlines inside quotes
+  function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let field = "";
+    let inQuotes = false;
 
-  while (i < s.length) {
-    const ch = s[i];
+    // normalize line endings but keep real newlines for parsing
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      const next = text[i + 1];
 
-    if (inQuotes) {
-      if (ch === '"') {
-        if (s[i + 1] === '"') {
-          cell += '"';
-          i += 2;
-        } else {
+      if (inQuotes) {
+        if (c === '"' && next === '"') { // escaped quote
+          field += '"';
+          i++;
+        } else if (c === '"') {
           inQuotes = false;
-          i += 1;
+        } else {
+          field += c;
         }
       } else {
-        cell += ch;
-        i += 1;
+        if (c === '"') {
+          inQuotes = true;
+        } else if (c === ",") {
+          row.push(field);
+          field = "";
+        } else if (c === "\n") {
+          row.push(field);
+          rows.push(row);
+          row = [];
+          field = "";
+        } else if (c === "\r") {
+          // ignore \r
+        } else {
+          field += c;
+        }
       }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-        i += 1;
-      } else if (ch === ",") {
-        row.push(cell);
-        cell = "";
-        i += 1;
-      } else if (ch === "\n") {
-        row.push(cell);
-        rows.push(row);
-        row = [];
-        cell = "";
-        i += 1;
-      } else {
-        cell += ch;
-        i += 1;
+    }
+
+    // flush last row
+    if (field.length > 0 || row.length > 0) {
+      row.push(field);
+      rows.push(row);
+    }
+
+    return rows;
+  }
+
+  function toObjects(table) {
+    if (!table.length) return [];
+    const headers = table[0].map(h => (h ?? "").trim());
+    const out = [];
+
+    for (let r = 1; r < table.length; r++) {
+      const line = table[r];
+      if (!line || line.every(v => String(v ?? "").trim() === "")) continue;
+
+      const obj = {};
+      for (let c = 0; c < headers.length; c++) {
+        const key = headers[c] || `col_${c}`;
+        obj[key] = (line[c] ?? "").trim();
       }
+      out.push(obj);
+    }
+    return out;
+  }
+
+  // Date helpers
+  const pad2 = (n) => String(n).padStart(2, "0");
+
+  function parseZDate(row) {
+    // Prefer ISO Z date-time
+    const iso = pick(row, "event_datetime_z", "event_datetime_utc", "event_time_utc", "event_dt_z");
+    if (iso) {
+      const d = new Date(iso);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // Fallback: event_date + event_time_z like "8/23/2025" + "2018Z"
+    const dStr = pick(row, "event_date", "date", "eventDate");
+    const tStr = pick(row, "event_time_z", "time_z", "eventTimeZ");
+    if (dStr && tStr) {
+      // try to build "YYYY-MM-DDTHH:MM:SSZ" (but we only have HHMMZ)
+      const cleaned = String(tStr).toUpperCase().replace("Z", "").trim();
+      const hh = cleaned.slice(0, 2);
+      const mm = cleaned.slice(2, 4);
+      const date = new Date(`${dStr} 00:00:00`);
+      if (!isNaN(date.getTime()) && hh && mm) {
+        // construct in UTC
+        const y = date.getFullYear();
+        const m = pad2(date.getMonth() + 1);
+        const day = pad2(date.getDate());
+        const iso2 = `${y}-${m}-${day}T${hh}:${mm}:00Z`;
+        const d2 = new Date(iso2);
+        if (!isNaN(d2.getTime())) return d2;
+      }
+    }
+    return null;
+  }
+
+  function formatAnchorageTime(dateObj) {
+    if (!dateObj) return "";
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Anchorage",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZoneName: "short"
+      }).formatToParts(dateObj);
+
+      const hh = parts.find(p => p.type === "hour")?.value ?? "";
+      const mm = parts.find(p => p.type === "minute")?.value ?? "";
+      const tz = parts.find(p => p.type === "timeZoneName")?.value ?? "AK";
+      return `${hh}:${mm} ${tz}`;
+    } catch {
+      return "";
     }
   }
 
-  row.push(cell);
-  rows.push(row);
-
-  return rows.filter((r) => r.some((c) => norm(c).length > 0));
-}
-
-function detectNarrativeKey(headers) {
-  const lower = headers.map((h) => norm(h).toLowerCase());
-
-  // Your CSV screenshots show narrative content living in context_parens
-  const priority = ["context_parens", "narrative", "context", "details", "description", "summary"];
-
-  for (const k of priority) {
-    const idx = lower.indexOf(k);
-    if (idx !== -1) return headers[idx];
+  function formatMDY(dateObj) {
+    if (!dateObj) return "";
+    const m = dateObj.getUTCMonth() + 1;
+    const d = dateObj.getUTCDate();
+    const y = dateObj.getUTCFullYear();
+    return `${m}/${d}/${y}`;
   }
 
-  // fallback: any header containing "narr"
-  for (let i = 0; i < lower.length; i++) {
-    if (lower[i].includes("narr")) return headers[i];
-  }
-  return null;
-}
-
-function buildOptions(selectEl, values, placeholder) {
-  const unique = Array.from(new Set(values.map(norm).filter(Boolean))).sort((a, b) =>
-    a.localeCompare(b)
-  );
-  selectEl.innerHTML = "";
-  const opt0 = document.createElement("option");
-  opt0.value = "";
-  opt0.textContent = placeholder;
-  selectEl.appendChild(opt0);
-
-  for (const v of unique) {
-    const opt = document.createElement("option");
-    opt.value = v;
-    opt.textContent = v;
-    selectEl.appendChild(opt);
-  }
-}
-
-function get(row, ...keys) {
-  for (const k of keys) {
-    if (!k) continue;
-    const v = row[k];
-    if (norm(v)) return norm(v);
-  }
-  return "";
-}
-
-function parseSortDate(row) {
-  const dt = norm(row.event_datetime_z);
-  if (dt) {
-    const ms = Date.parse(dt);
-    if (!Number.isNaN(ms)) return ms;
-  }
-  const d = norm(row.event_date);
-  const tz = norm(row.event_time_z);
-  if (d) {
-    let iso = d;
-    if (tz && /^[0-2]\d[0-5]\dZ$/.test(tz)) {
-      iso = `${d}T${tz.slice(0, 2)}:${tz.slice(2, 4)}:00Z`;
+  function formatZHHMM(dateObj, row) {
+    // If CSV already provides 2018Z, prefer it
+    const t = pick(row, "event_time_z", "time_z");
+    if (t) {
+      const cleaned = String(t).trim();
+      return cleaned.toUpperCase().endsWith("Z") ? cleaned.toUpperCase() : `${cleaned}Z`;
     }
-    const ms = Date.parse(iso);
-    if (!Number.isNaN(ms)) return ms;
+    if (!dateObj) return "";
+    const hh = pad2(dateObj.getUTCHours());
+    const mm = pad2(dateObj.getUTCMinutes());
+    return `${hh}${mm}Z`;
   }
-  const rd = norm(row.report_date);
-  if (rd) {
-    const ms = Date.parse(rd);
-    if (!Number.isNaN(ms)) return ms;
+
+  // Narrative: MUST use raw_narrative (with fallback)
+  function getNarrative(row) {
+    return pick(
+      row,
+      "raw_narrative",
+      "narrative",
+      "context_parens",
+      "context",
+      "description"
+    );
   }
-  return 0;
-}
 
-function formatTitle(row) {
-  const city = get(row, "city");
-  const state = get(row, "state");
-  const loc = [city, state].filter(Boolean).join(", ");
-
-  const d = get(row, "event_date") || get(row, "event_datetime_z");
-  const datePart = d ? d.split("T")[0] : "";
-  const tz = get(row, "event_time_z");
-  const timePart = tz ? ` (${tz})` : "";
-
-  if (loc && datePart) return `${loc} — ${datePart}${timePart}`;
-  if (loc) return loc;
-  if (datePart) return `${datePart}${timePart}`;
-  return "Unknown location";
-}
-
-function formatLine2(row) {
-  const n = get(row, "aircraft_primary", "aircraft_1_nnumber", "n_numbers");
-  const model = get(row, "aircraft_primary_model", "aircraft_1_type");
-  const facility = get(row, "facility", "airport_code", "airport_name");
-  return [n, model, facility].filter(Boolean).join(" • ");
-}
-
-function chip(label, value) {
-  const d = document.createElement("div");
-  d.className = "chip";
-  d.innerHTML = `<b>${label}:</b> ${value}`;
-  return d;
-}
-
-function render(rows) {
-  els.results.innerHTML = "";
-
-  for (const row of rows) {
-    const card = document.createElement("article");
-    card.className = "card";
-
-    const h1 = document.createElement("div");
-    h1.className = "cardHeadLine1";
-    h1.textContent = formatTitle(row);
-
-    const h2 = document.createElement("div");
-    h2.className = "cardHeadLine2";
-    h2.textContent = formatLine2(row) || "";
-
-    const chips = document.createElement("div");
-    chips.className = "chips";
-
-    const reportDate = get(row, "report_date");
-    const phase = get(row, "phase");
-    const eventType = get(row, "event_type");
-    const pob = get(row, "pob");
-    const injuries = get(row, "injuries");
-    const damage = get(row, "damage");
-    const form8020 = get(row, "form_8020_9");
-
-    if (reportDate) chips.appendChild(chip("Report", reportDate));
-    if (phase) chips.appendChild(chip("Phase", phase));
-    if (eventType) chips.appendChild(chip("Type", eventType));
-    if (pob) chips.appendChild(chip("POB", pob));
-    if (injuries) chips.appendChild(chip("Injuries", injuries));
-    if (damage) chips.appendChild(chip("Damage", damage));
-    if (form8020) chips.appendChild(chip("8020-9", form8020));
-
-    // ✅ Narrative (this is the key)
-    const narrative = get(row, "raw_narrative", narrativeKey);
-
-    const narrWrap = document.createElement("div");
-    narrWrap.className = "narrWrap";
-
-    const preview = document.createElement("div");
-    preview.className = "narrPreview";
-    preview.textContent = narrative || "No narrative provided.";
-
-    const full = document.createElement("div");
-    full.className = "narrFull";
-    full.textContent = narrative || "No narrative provided.";
-
-    narrWrap.appendChild(preview);
-    narrWrap.appendChild(full);
-
-    const actions = document.createElement("div");
-    actions.className = "cardActions";
-
-    const btn = document.createElement("button");
-    btn.className = "expandBtn";
-    btn.type = "button";
-    btn.textContent = "Expand";
-
-    btn.addEventListener("click", () => {
-      const expanded = card.classList.toggle("expanded");
-      btn.textContent = expanded ? "Collapse" : "Expand";
-    });
-
-    actions.appendChild(btn);
-
-    card.appendChild(h1);
-    if (h2.textContent) card.appendChild(h2);
-    card.appendChild(chips);
-    card.appendChild(narrWrap);
-    card.appendChild(actions);
-
-    els.results.appendChild(card);
+  // Card lines
+  function getLine1(row) {
+    const n = pick(row, "aircraft_primary", "aircraft_1_nnumber", "n_number", "n_numbers", "tail", "tail_number");
+    const model = pick(row, "aircraft_primary_model", "aircraft_1_type", "aircraft_model", "model");
+    const left = n || "Unknown aircraft";
+    const right = model || "Unknown model";
+    return `${left} • ${right}`;
   }
-}
 
-function applyFilters() {
-  const q = norm(els.search.value).toLowerCase();
-  const st = norm(els.state.value);
-  const ev = norm(els.event.value);
-  const ph = norm(els.phase.value);
-  const sort = norm(els.sort.value);
+  function getLine2(row, zDate) {
+    const airportName = pick(row, "airport_name");
+    const city = pick(row, "city");
+    const state = pick(row, "state");
+    const airportCode = pick(row, "airport_code");
 
-  let filtered = allRows.slice();
+    // Prefer "Airport Name, ST" if present, else "City, ST"
+    let place = "";
+    if (airportName && state) place = `${airportName}, ${state}`;
+    else if (city && state) place = `${city}, ${state}`;
+    else if (airportName) place = airportName;
+    else if (city) place = city;
+    else place = "Unknown location";
 
-  if (st) filtered = filtered.filter((r) => norm(r.state) === st);
-  if (ev) filtered = filtered.filter((r) => norm(r.event_type) === ev);
-  if (ph) filtered = filtered.filter((r) => norm(r.phase) === ph);
+    // If you prefer showing airport code too, uncomment:
+    // if (airportCode) place = `${place} (${airportCode})`;
 
-  if (q) {
-    filtered = filtered.filter((r) => {
+    const dateMDY = formatMDY(zDate) || pick(row, "event_date") || "Unknown date";
+    const zHHMM = formatZHHMM(zDate, row);
+    const ak = formatAnchorageTime(zDate);
+
+    // Example: Merrill Field, AK • 8/23/2025 (2018Z / 11:18 AKDT)
+    const timePart = zHHMM || ak ? ` (${[zHHMM, ak].filter(Boolean).join(" / ")})` : "";
+    return `${place} • ${dateMDY}${timePart}`;
+  }
+
+  // Metadata chips (exactly what you requested)
+  function buildMetaChips(row) {
+    const report = pick(row, "report_date", "report_dt", "report");
+    const phase = pick(row, "phase");
+    const type = pick(row, "event_type", "type", "event");
+    const pob = pick(row, "pob", "persons_on_board", "persons_onboard");
+    const injuries = pick(row, "injuries", "injury", "injury_level");
+    const damage = pick(row, "damage", "aircraft_damage");
+    const f8020 = pick(row, "form_8020_9", "8020_9", "form8020_9", "faa_form_8020_9");
+
+    const items = [
+      ["Report", report || "Unknown"],
+      ["Phase", phase || "Unknown"],
+      ["Type", type || "Unknown"],
+      ["POB", pob || "Unknown"],
+      ["Injuries", injuries || "Unknown"],
+      ["Damage", damage || "Unknown"],
+      ["8020-9", f8020 ? boolishYesNo(f8020) : "Unknown"],
+    ];
+
+    const wrap = document.createElement("div");
+    wrap.className = "metaLine";
+
+    for (const [label, value] of items) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.innerHTML = `<b>${escapeHtml(label)}:</b> ${escapeHtml(value)}`;
+      wrap.appendChild(chip);
+    }
+    return wrap;
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  // Filters/options
+  function uniqueSorted(values) {
+    return [...new Set(values.filter(v => String(v ?? "").trim() !== ""))]
+      .map(v => String(v).trim())
+      .sort((a, b) => a.localeCompare(b));
+  }
+
+  function fillSelect(selectEl, labelAll, values) {
+    selectEl.innerHTML = "";
+    const optAll = document.createElement("option");
+    optAll.value = "";
+    optAll.textContent = labelAll;
+    selectEl.appendChild(optAll);
+
+    for (const v of values) {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      selectEl.appendChild(opt);
+    }
+  }
+
+  function applyFilters() {
+    const q = (searchEl.value || "").trim().toLowerCase();
+    const st = stateFilterEl.value;
+    const ev = eventFilterEl.value;
+    const ph = phaseFilterEl.value;
+    const sort = sortOrderEl.value;
+
+    filteredRows = allRows.filter(r => {
+      const state = pick(r, "state");
+      const eventType = pick(r, "event_type", "type");
+      const phase = pick(r, "phase");
+
+      if (st && state !== st) return false;
+      if (ev && eventType !== ev) return false;
+      if (ph && phase !== ph) return false;
+
+      if (!q) return true;
+
       const hay = [
-        r.state, r.city, r.airport_code, r.facility,
-        r.aircraft_primary, r.aircraft_primary_model,
-        r.aircraft_1_nnumber, r.n_numbers,
-        r.event_type, r.phase, r.damage, r.injuries, r.pob,
-        r[narrativeKey],
-      ]
-        .map((x) => norm(x).toLowerCase())
-        .join(" | ");
+        getNarrative(r),
+        pick(r, "city"),
+        pick(r, "airport_name"),
+        pick(r, "airport_code"),
+        pick(r, "facility"),
+        pick(r, "aircraft_primary"),
+        pick(r, "aircraft_primary_model"),
+        pick(r, "n_numbers"),
+        pick(r, "aircraft_1_nnumber"),
+      ].join(" | ").toLowerCase();
+
       return hay.includes(q);
     });
+
+    // sort by event_datetime_z if possible, else event_date
+    filteredRows.sort((a, b) => {
+      const da = parseZDate(a);
+      const db = parseZDate(b);
+      const ta = da ? da.getTime() : 0;
+      const tb = db ? db.getTime() : 0;
+      return sort === "oldest" ? ta - tb : tb - ta;
+    });
+
+    render();
   }
 
-  filtered.sort((a, b) => {
-    const da = parseSortDate(a);
-    const db = parseSortDate(b);
-    return sort === "oldest" ? da - db : db - da;
-  });
+  function render() {
+    resultsEl.innerHTML = "";
 
-  els.rowCount.textContent = `Rows detected: ${allRows.length}`;
-  render(filtered);
-}
+    rowCountEl.textContent = `Rows detected: ${allRows.length}`;
+    statusEl.textContent = `Loaded OK (narrative column: raw_narrative)`;
 
-async function init() {
-  try {
-    els.status.textContent = "Loading data…";
+    if (!filteredRows.length) {
+      const empty = document.createElement("div");
+      empty.className = "card";
+      empty.textContent = "No results match your filters.";
+      resultsEl.appendChild(empty);
+      return;
+    }
 
-    // cache-bust to avoid seeing old CSV
-    const url = `./data/incidents.csv?v=${Date.now()}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`Unable to load CSV (${res.status})`);
+    for (const row of filteredRows) {
+      const zDate = parseZDate(row);
+      const narrativeRaw = getNarrative(row);
+      const previewText = narrativeRaw || "No narrative provided.";
 
-    const csvText = await res.text();
-    const raw = parseCsv(csvText);
-    if (raw.length < 2) throw new Error("CSV has no data rows.");
+      const card = document.createElement("article");
+      card.className = "card";
 
-    const headers = raw[0].map((h) => norm(h));
-    narrativeKey = headers.find(h => h.trim().toLowerCase() === "raw_narrative")
-    || detectNarrativeKey(headers);
+      const line1 = document.createElement("div");
+      line1.className = "line1";
+      line1.textContent = getLine1(row);
 
-    const data = raw.slice(1);
+      const line2 = document.createElement("div");
+      line2.className = "line2";
+      line2.textContent = getLine2(row, zDate);
 
-    allRows = data
-      .map((cells) => {
-        const row = {};
-        for (let i = 0; i < headers.length; i++) row[headers[i]] = cells[i] ?? "";
-        // normalize common keys
-        row.state = norm(row.state);
-        row.city = norm(row.city);
-        row.event_type = norm(row.event_type);
-        row.phase = norm(row.phase);
-        row.damage = norm(row.damage);
-        row.injuries = norm(row.injuries);
-        row.pob = norm(row.pob);
-        row.facility = norm(row.facility);
-        return row;
-      })
-      .filter((r) => Object.values(r).some((v) => norm(v).length > 0));
+      const narrRow = document.createElement("div");
+      narrRow.className = "narrRow";
 
-    buildOptions(els.state, allRows.map((r) => r.state), "All states");
-    buildOptions(els.event, allRows.map((r) => r.event_type), "All event types");
-    buildOptions(els.phase, allRows.map((r) => r.phase), "All phases");
+      const narrPreview = document.createElement("div");
+      narrPreview.className = "narrPreview";
+      narrPreview.textContent = previewText;
 
-    els.status.textContent = narrativeKey
-      ? `Loaded OK (narrative column: ${narrativeKey})`
-      : "Loaded OK (no narrative column detected)";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "expandBtn";
+      btn.textContent = "Expand";
 
-    // listeners
-    els.search.addEventListener("input", applyFilters);
-    els.state.addEventListener("change", applyFilters);
-    els.event.addEventListener("change", applyFilters);
-    els.phase.addEventListener("change", applyFilters);
-    els.sort.addEventListener("change", applyFilters);
+      const narrFull = document.createElement("div");
+      narrFull.className = "narrFull";
+      narrFull.textContent = narrativeRaw || "No narrative provided.";
 
-    applyFilters();
-  } catch (e) {
-    console.error(e);
-    els.status.textContent = `Error: ${e.message}`;
-    els.rowCount.textContent = "Rows detected: 0";
-    els.results.innerHTML = "";
+      const meta = buildMetaChips(row);
+
+      btn.addEventListener("click", () => {
+        const expanded = card.classList.toggle("expanded");
+        btn.textContent = expanded ? "Collapse" : "Expand";
+        if (expanded) {
+          // ensure full text visible/scroll friendly
+          narrFull.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      });
+
+      narrRow.appendChild(narrPreview);
+      narrRow.appendChild(btn);
+
+      card.appendChild(line1);
+      card.appendChild(line2);
+      card.appendChild(narrRow);
+      card.appendChild(narrFull);
+      card.appendChild(meta);
+
+      resultsEl.appendChild(card);
+    }
   }
-}
 
-init();
+  function wireEvents() {
+    const onChange = () => applyFilters();
+    searchEl.addEventListener("input", onChange);
+    stateFilterEl.addEventListener("change", onChange);
+    eventFilterEl.addEventListener("change", onChange);
+    phaseFilterEl.addEventListener("change", onChange);
+    sortOrderEl.addEventListener("change", onChange);
+  }
+
+  async function init() {
+    try {
+      statusEl.textContent = `Loading ${CSV_PATH}…`;
+
+      const resp = await fetch(CSV_PATH, { cache: "no-store" });
+      if (!resp.ok) throw new Error(`Unable to load CSV (${resp.status})`);
+
+      const csvText = await resp.text();
+      const table = parseCsv(csvText);
+      const objs = toObjects(table);
+
+      allRows = objs;
+      rowCountEl.textContent = `Rows detected: ${allRows.length}`;
+
+      // Fill filter dropdowns
+      fillSelect(stateFilterEl, "All states", uniqueSorted(allRows.map(r => pick(r, "state"))));
+      fillSelect(eventFilterEl, "All event types", uniqueSorted(allRows.map(r => pick(r, "event_type", "type"))));
+      fillSelect(phaseFilterEl, "All phases", uniqueSorted(allRows.map(r => pick(r, "phase"))));
+
+      statusEl.textContent = "Loaded OK";
+
+      filteredRows = [...allRows];
+      applyFilters();
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = `Error: ${err.message || err}`;
+    }
+  }
+
+  wireEvents();
+  init();
+})();
