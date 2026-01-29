@@ -126,17 +126,20 @@ a{ color: inherit; }
   box-shadow: 0 14px 34px rgba(15,23,42,.08);
 }
 
-.l1 { font-weight: 800; font-size: 18px !important; letter-spacing: .2px; color: var(--ink); }
-
-
-.line2{
-  margin-top: 6px;
-  font-weight: 900;
-  font-size: 16px;
-  letter-spacing: .2px;
+.l1 { 
+  font-weight: 800; font-size: 18px !important; 
+  letter-spacing: .2px; 
+  color: var(--ink); 
 }
 
-.narrRow{
+
+.l2{
+  font-weight: 400 !important;
+  font-style: italic;
+  color: rgba(0,0,0,.72);
+  font-size: 13px;
+}
+
   margin-top: 10px;
   display:flex;
   align-items: flex-start;
