@@ -132,7 +132,6 @@ a{ color: inherit; }
   color: var(--ink); 
 }
 
-
 .l2{
   font-weight: 400 !important;
   font-style: italic;
@@ -140,7 +139,6 @@ a{ color: inherit; }
   font-size: 15px;
 }
 
-.l3
 .narrPreview{
   font-size: 10px !important;
   line-height: 1.35 !important;
