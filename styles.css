@@ -195,7 +195,13 @@ a{ color: inherit; }
   .download{ grid-column: 1 / -1; }
 }
 
+/* Space between narrative (line 3) and metadata chips (line 4) */
+.chips{
+  margin-top: 12px !important;
+}
+
+/* Make sure narrative acts like a block */
 .narrPreview,
 .narrFull{
-  margin-bottom: 12px !important;
+  display: block !important;
 }
