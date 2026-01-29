@@ -227,7 +227,7 @@ a{ color: inherit; }
 /* If you use <b> labels inside chip, keep labels slightly stronger but not "bold-bold" */
 .chip b,
 .chip strong{
-  font-weight: 600;
+  font-weight: 800;
   color: rgba(15,23,42,.92);
 }
 
