@@ -199,9 +199,3 @@ a{ color: inherit; }
 .chips{
   margin-top: 12px !important;
 }
-
-/* Make sure narrative acts like a block */
-.narrPreview,
-.narrFull{
-  display: block !important;
-}
