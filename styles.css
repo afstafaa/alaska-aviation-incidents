@@ -139,21 +139,13 @@ a{ color: inherit; }
   font-size: 15px;
 }
 
-.narrPreview{
+/* Force BOTH preview + expanded narrative to the same size */
+.narrPreview,
+.narrFull,
+.narrFull * {
   font-size: 11px !important;
   line-height: 1.35 !important;
-}
-
-.expandBtn{
-  border: 1px solid var(--line);
-  background: #fff;
-  border-radius: 10px;
-  padding: 8px 10px;
-  cursor: pointer;
-  font-weight: 800;
-  font-size: 11px;
-  color: rgba(15,23,42,.88);
-}
+}}
 
 .expandBtn:hover{ background: rgba(15,23,42,.03); }
 
