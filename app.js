@@ -1,4 +1,4 @@
-/* Alaska Aviation Incidents - app.js
+/* Alaska and Northwest Mountain Region Aviation Incidents - app.js
    Loads: ./data/incidents.csv
    Narrative column: raw_narrative
 */
