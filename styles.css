@@ -146,14 +146,10 @@ a{ color: inherit; }
   gap: 10px;
 }
 
+.l3,
 .narrPreview{
-  flex: 1;
-  color: rgba(15,23,42,.82);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
 }
 
 .expandBtn{
