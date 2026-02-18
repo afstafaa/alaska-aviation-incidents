@@ -242,19 +242,20 @@ a{ color: inherit; }
   .download{ grid-column: 1 / -1; }
 }
 /* Keep Sort + Download on same row */
+/* Force Sort + Download to sit on the same row */
 .controlRow{
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  flex: 1 1 320px;
+  display:flex;
+  gap:12px;
+  align-items:flex-end;
+  width:100%;
 }
 
-.controlRow > .control{
-  flex: 1 1 220px;
+.controlRow .control{
+  flex:1 1 220px;
 }
 
-.controlRow > button,
-.controlRow > a{
-  flex: 0 0 auto;
-  white-space: nowrap;
+.controlRow button,
+.controlRow a{
+  flex:0 0 auto;
+  white-space:nowrap;
 }
