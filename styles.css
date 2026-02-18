@@ -241,7 +241,7 @@ a{ color: inherit; }
   .controls{ grid-template-columns: 1fr 1fr; }
   .download{ grid-column: 1 / -1; }
 }
-/* Force Sort + Download to sit on the same row */
+
 /* ONE ROW controls bar */
 .controls{
   display: grid;
