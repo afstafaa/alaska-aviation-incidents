@@ -285,3 +285,10 @@ flex: 1 1 auto;
 .controlRow button{
   white-space: nowrap;
 }
+.status,
+.results{
+  padding-left: 22px;
+  padding-right: 18px;
+}
+
+
