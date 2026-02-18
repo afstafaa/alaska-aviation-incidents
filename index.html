@@ -17,11 +17,12 @@
 
  <main class="container">
   <section class="controls">
+
     <div class="control">
       <label for="search">Search</label>
       <input id="search" type="search"
-             placeholder="Search narrative, city, airport, N-number(s), model…"
-             autocomplete="off" />
+        placeholder="Search narrative, city, airport, N-number(s), model…"
+        autocomplete="off" />
     </div>
 
     <div class="control">
@@ -53,20 +54,30 @@
       <select id="phaseFilter"></select>
     </div>
 
-    <!-- Sort + Download grouped together -->
-    <div class="control controlRow">
-      <div class="control">
-        <label for="sortOrder">Sort</label>
-        <select id="sortOrder">
-          <option value="newest">Newest</option>
-          <option value="oldest">Oldest</option>
-        </select>
-      </div>
-
-      <button id="downloadBtn" class="btn" type="button">Download CSV</button>
+    <div class="control">
+      <label for="sortOrder">Sort</label>
+      <select id="sortOrder">
+        <option value="newest">Newest</option>
+        <option value="oldest">Oldest</option>
+      </select>
     </div>
+
+    <div class="download">
+      <!-- If your app.js expects an <a> download link instead of a button, keep it as <a>. -->
+      <button id="downloadBtn" class="button" type="button">Download CSV</button>
+    </div>
+
   </section>
+
+  <!-- status + results (unchanged) -->
+  <div class="status">
+    <div id="statusMessage"></div>
+    <div id="rowCount"></div>
+  </div>
+
+  <section id="results" class="results"></section>
 </main>
+
 
 
     <section class="status">
