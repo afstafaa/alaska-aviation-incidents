@@ -242,29 +242,35 @@ a{ color: inherit; }
   .download{ grid-column: 1 / -1; }
 }
 
-/* ONE ROW controls bar */
+/* SINGLE ROW CONTROL BAR */
 .controls{
-  display: grid;
-  grid-template-columns: 2.2fr 0.9fr 0.9fr 1.0fr 1.1fr 1.0fr 0.9fr auto;
+  display:flex;
+  flex-wrap: nowrap;      /* 👈 prevent wrapping */
   gap: 12px;
-  align-items: end;
+  align-items: flex-end;
+  overflow-x: auto;       /* 👈 allows scroll instead of wrapping */
+  padding-bottom: 4px;    /* prevents scrollbar overlap */
 }
 
-/* prevent inputs/selects from forcing overflow */
-.controls .control,
-.controls input,
-.controls select{
-  min-width: 0;
+/* Let items shrink instead of forcing wrap */
+.controls .control{
+  min-width: 120px;
+  flex: 0 1 auto;
 }
 
-/* Keep sort+download aligned and not wrapping weird */
+/* Search a little wider */
+.controls .control:first-child{
+  min-width: 220px;
+}
+
+/* Sort + Download inline */
 .controlRow{
-  display: flex;
-  gap: 10px;
-  align-items: end;
+  display:flex;
+  gap:10px;
+  align-items:flex-end;
+  flex: 0 0 auto;
 }
 
-.controlRow button,
-.controlRow a{
+.controlRow button{
   white-space: nowrap;
 }
