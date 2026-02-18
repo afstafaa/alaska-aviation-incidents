@@ -290,21 +290,6 @@ flex: 1 1 auto;
   padding-left: 22px;
   padding-right: 18px;
 }
-#downloadBtn{
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 44px;
-  padding: 0 18px;
-  border-radius: 999px;
-  text-decoration: none;
-  background: #0d4b7f;
-  color: #fff;
-  font-weight: 800;
-  border: 1px solid rgba(255,255,255,.25);
-  box-shadow: 0 10px 26px rgba(13, 75, 127, .22);
-  cursor: pointer;
-}
-#downloadBtn:hover{ filter: brightness(1.03); }
+
 
 
