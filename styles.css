@@ -21,7 +21,7 @@ html, body{
 a{ color: inherit; }
 
 .container{
-  width: min(1100px, calc(100% - 32px));
+  width: min(1500px, calc(100% - 40px)); /* 👈 wider */
   margin: 0 auto;
 }
 
@@ -261,7 +261,7 @@ a{ color: inherit; }
   gap: 12px;
   align-items: flex-end;
   overflow-x: auto;       /* 👈 allows scroll instead of wrapping */
-  padding-bottom: 4px;    /* prevents scrollbar overlap */
+  padding-bottom: 6px;    /* prevents scrollbar overlap */
 }
 
 /* Let items shrink instead of forcing wrap */
