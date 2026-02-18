@@ -21,7 +21,8 @@ html, body{
 a{ color: inherit; }
 
 .container{
-  width: min(1500px, calc(100% - 40px)); /* 👈 wider */
+width: calc(100% - 40px);
+  max-width: 1600px;
   margin: 0 auto;
 }
 
