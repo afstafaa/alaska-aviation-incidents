@@ -13,6 +13,7 @@ const els = {
   status: document.getElementById("statusMessage"),
   rowCount: document.getElementById("rowCount"),
   results: document.getElementById("results"),
+  downloadBtn: document.getElementById("downloadBtn"),
 };
 
 let INCIDENTS = [];
@@ -411,6 +412,38 @@ async function init() {
     console.error(e);
     els.status.textContent = `Load error: ${e.message || e}`;
   }
+}
+function csvEscape(value) {
+  const s = (value ?? "").toString();
+  // wrap in quotes if it contains comma, quote, or newline
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function buildCsvFromObjects(objs) {
+  if (!objs || !objs.length) return "";
+
+  // Use the original CSV headers if possible (from first object keys)
+  const cols = Object.keys(objs[0]).filter(k => !k.startsWith("_")); 
+  // If you WANT the normalized fields too, remove the filter above.
+
+  const headerLine = cols.map(csvEscape).join(",");
+  const lines = objs.map(o => cols.map(c => csvEscape(o[c])).join(","));
+  return [headerLine, ...lines].join("\n");
+}
+
+function downloadTextFile(filename, text) {
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), 500);
 }
 
 init();
