@@ -241,11 +241,12 @@ a{ color: inherit; }
   .controls{ grid-template-columns: 1fr 1fr; }
   .download{ grid-column: 1 / -1; }
 }
-/* Keep Sort + Download on the same line */
+/* Force Sort + Download to sit on the same row */
 .controlRow{
   display:flex;
   gap:12px;
   align-items:flex-end;
+  width:100%;
 }
 
 .controlRow .control{
@@ -254,6 +255,6 @@ a{ color: inherit; }
 
 .controlRow button,
 .controlRow a{
-  flex:0 0 auto;
-  white-space:nowrap;
+  padding: 10px 14px;
+  border-radius: 999px;
 }
