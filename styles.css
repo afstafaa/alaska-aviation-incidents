@@ -242,49 +242,29 @@ a{ color: inherit; }
   .download{ grid-column: 1 / -1; }
 }
 /* Force Sort + Download to sit on the same row */
-.controlRow{
-  display:flex;
-  gap:12px;
-  align-items:flex-end;
-  width:100%;
+/* ONE ROW controls bar */
+.controls{
+  display: grid;
+  grid-template-columns: 2.2fr 0.9fr 0.9fr 1.0fr 1.1fr 1.0fr 0.9fr auto;
+  gap: 12px;
+  align-items: end;
 }
 
-.controlRow .control{
-  flex:1 1 220px;
+/* prevent inputs/selects from forcing overflow */
+.controls .control,
+.controls input,
+.controls select{
+  min-width: 0;
+}
+
+/* Keep sort+download aligned and not wrapping weird */
+.controlRow{
+  display: flex;
+  gap: 10px;
+  align-items: end;
 }
 
 .controlRow button,
 .controlRow a{
-  padding: 10px 14px;
-  border-radius: 999px;
-}
-/* Make controls row behave: each control can shrink, but not collapse weirdly */
-.controls{
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  align-items: flex-end;
-}
-
-/* IMPORTANT: allow flex children to shrink properly */
-.controls .control{
-  min-width: 0;
-}
-
-/* Make the Sort+Download group stay wide enough */
-.controls .controlRow{
-  flex: 1 1 320px;   /* takes space like other controls */
-  min-width: 320px;  /* prevents it from becoming a skinny column */
-}
-
-/* Inside the group: Sort stretches, button stays tight */
-.controls .controlRow .control{
-  flex: 1 1 200px;
-  min-width: 200px;
-}
-
-.controls .controlRow button,
-.controls .controlRow a{
-  flex: 0 0 auto;
   white-space: nowrap;
 }
