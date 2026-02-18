@@ -51,18 +51,19 @@
         <select id="phaseFilter"></select>
       </div>
 
-      <div class="control">
-        <label for="sortOrder">Sort</label>
-        <select id="sortOrder">
-          <option value="newest">Newest</option>
-          <option value="oldest">Oldest</option>
-        </select>
-      </div>
+      <div class="control controlRow">
+  <div class="control">
+    <label for="sortOrder">Sort</label>
+    <select id="sortOrder">
+      <option value="newest">Newest</option>
+      <option value="oldest">Oldest</option>
+    </select>
+  </div>
 
-      <div class="control download">
-        <label>&nbsp;</label>
-        <a class="button" href="./data/incidents.csv" download>Download CSV</a>
-      </div>
+  <!-- paste YOUR existing download button here -->
+  <button id="downloadBtn" class="btn">Download CSV</button>
+</div>
+
     </section>
 
     <section class="status">
