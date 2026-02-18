@@ -1,4 +1,7 @@
+
 /* styles.css (FULL) */
+/* Centered, clean, NO horizontal scrollbar, one-row controls that wrap nicely */
+
 :root{
   --bg: #f3f6fb;
   --card: #ffffff;
@@ -20,12 +23,13 @@ html, body{
 }
 a{ color: inherit; }
 
+/* ✅ Center column used by hero text, controls, status, results */
 .container{
-display:flex;
-  flex-wrap: nowrap;
-  gap: 14px;
-  align-items: flex-end;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
 }
+
 /* Header */
 .hero{
   padding: 42px 0 34px;
@@ -43,35 +47,26 @@ display:flex;
   font-weight: 600;
 }
 
-/* Controls (SINGLE ROW, scroll if needed) */
+/* ✅ Controls: same centered column, ONE ROW on desktop, wraps cleanly on smaller widths (NO scrollbar) */
 .controls{
   margin-top: 26px;
-  background: rgba(255,255,255,.9);
+  width: 100%;
+  background: rgba(255,255,255,.95);
   border: 1px solid rgba(255,255,255,.7);
   border-radius: 18px;
   padding: 18px;
   box-shadow: var(--shadow);
 
-  display:flex;
-  flex-wrap: nowrap;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;          /* 👈 wraps instead of scrolling */
+  gap: 14px;
   align-items: flex-end;
-
-  overflow-x: auto;
-  padding-bottom: 6px;
 }
 
-/* Let items shrink */
-flex: 1 1 auto;
-  min-width: 140px;
+/* Each control */
+.control{
+  flex: 0 0 auto;
 }
-
-.controls .control:first-child{
-  min-width: 280px; /* Search bigger */
-}
-
-.controlRow button,
-.controlRow a{ white-space: nowrap; }
 
 .control label{
   display: block;
@@ -100,11 +95,24 @@ flex: 1 1 auto;
   box-shadow: 0 0 0 3px rgba(31, 106, 165, .18);
 }
 
-.download{
-  display: flex;
-  justify-content: flex-start;
-}
+/* ✅ Width plan for the single-row look (desktop) */
+.controls .control.search   { flex: 1 1 320px; min-width: 280px; }
+.controls .control.year     { flex: 0 0 130px; }
+.controls .control.month    { flex: 0 0 130px; }
+.controls .control.state    { flex: 0 0 150px; }
+.controls .control.event    { flex: 0 0 170px; }
+.controls .control.phase    { flex: 0 0 150px; }
 
+/* ✅ Sort + Download stay together as a group */
+.controlRow{
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex: 0 0 auto;
+}
+.controlRow .control.sort   { width: 190px; }
+
+/* Download button style (the “nice” pill) */
 .button{
   display: inline-flex;
   align-items: center;
@@ -118,29 +126,32 @@ flex: 1 1 auto;
   font-weight: 800;
   border: 1px solid rgba(255,255,255,.25);
   box-shadow: 0 10px 26px rgba(13, 75, 127, .22);
+  white-space: nowrap;
 }
 .button:hover{ filter: brightness(1.03); }
 
 /* Status row */
 .status{
+  width: 100%;
   display:flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 14px 6px 0;
+  padding: 14px 0 0;     /* ✅ no weird left offset */
   color: rgba(15,23,42,.65);
   font-size: 13px;
 }
 
 /* Results list */
 .results{
+  width: 100%;
   margin-top: 18px;
   display: grid;
   gap: 16px;
   padding-bottom: 40px;
 }
 
-/* --- Card layout (prelim-style) --- */
+/* --- Card layout --- */
 .card{
   background: var(--card);
   border: 1px solid rgba(15,23,42,.08);
@@ -212,10 +223,10 @@ flex: 1 1 auto;
 }
 .expandBtn:hover{ background: rgba(15,23,42,.03); }
 
-/* Metadata chips line (your required fields) */
+/* Metadata chips line */
 .metaLine{
-  display: none;              /* only show when expanded */
-  margin-top: 14px;           /* space between line 3 and line 4 */
+  display: none;
+  margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid rgba(15,23,42,.08);
   gap: 8px;
@@ -228,7 +239,6 @@ flex: 1 1 auto;
   gap: 8px;
 }
 
-/* Chips: values not bold */
 .chip{
   display: inline-flex;
   gap: 6px;
@@ -237,59 +247,25 @@ flex: 1 1 auto;
   border-radius: 999px;
   background: var(--chip);
   font-size: 12px;
-  font-weight: 400; /* non-bold */
+  font-weight: 400;
   color: rgba(15,23,42,.86);
 }
 
-/* If you use <b> labels inside chip, keep labels slightly stronger but not "bold-bold" */
 .chip b,
 .chip strong{
   font-weight: 800;
   color: rgba(15,23,42,.92);
 }
 
-/* Expanded state behavior */
+/* Expanded state */
 .card.expanded .narrFull{ display:block; }
 .card.expanded .metaLine{ display:flex; }
 .card.expanded .narrPreview{ display:none; }
 
-/* SINGLE ROW CONTROL BAR */
-.controls{
-  display:flex;
-  flex-wrap: nowrap;      /* 👈 prevent wrapping */
-  gap: 12px;
-  align-items: flex-end;
-  overflow-x: auto;       /* 👈 allows scroll instead of wrapping */
-  padding-bottom: 6px;    /* prevents scrollbar overlap */
+/* ✅ Responsive: controls become 2 columns naturally, no scrollbars */
+@media (max-width: 980px){
+  .controls{ gap: 12px; }
+  .controls .control.search{ flex: 1 1 100%; min-width: 0; }
+  .controlRow{ width: 100%; justify-content: space-between; }
+  .controlRow .control.sort{ width: min(220px, 55vw); }
 }
-
-/* Let items shrink instead of forcing wrap */
-.controls .control{
-  min-width: 120px;
-  flex: 0 1 auto;
-}
-
-/* Search a little wider */
-.controls .control:first-child{
-  min-width: 220px;
-}
-
-/* Sort + Download inline */
-.controlRow{
-  display:flex;
-  gap:10px;
-  align-items:flex-end;
-  flex: 0 0 auto;
-}
-
-.controlRow button{
-  white-space: nowrap;
-}
-.status,
-.results{
-  padding-left: 22px;
-  padding-right: 18px;
-}
-
-
-
