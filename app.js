@@ -445,5 +445,24 @@ function downloadTextFile(filename, text) {
 
   setTimeout(() => URL.revokeObjectURL(url), 500);
 }
+    // Download filtered CSV
+    if (els.downloadBtn) {
+      els.downloadBtn.addEventListener("click", () => {
+        const rows = (FILTERED && FILTERED.length) ? FILTERED : INCIDENTS;
+
+        // Export ONLY original CSV columns (no _fields)
+        const exportRows = rows.map(r => {
+          const out = {};
+          for (const k in r) {
+            if (!k.startsWith("_")) out[k] = r[k];
+          }
+          return out;
+        });
+
+        const csv = buildCsvFromObjects(exportRows);
+        const stamp = new Date().toISOString().slice(0,10);
+        downloadTextFile(`incidents_export_${stamp}.csv`, csv);
+      });
+    }
 
 init();
