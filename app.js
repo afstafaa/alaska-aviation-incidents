@@ -10,7 +10,6 @@ const els = {
   event: document.getElementById("eventFilter"),
   phase: document.getElementById("phaseFilter"),
   sort: document.getElementById("sortOrder"),
-  downloadBtn: document.getElementById("downloadBtn"), // ✅ NEW
   status: document.getElementById("statusMessage"),
   rowCount: document.getElementById("rowCount"),
   results: document.getElementById("results"),
@@ -247,46 +246,6 @@ function uniqueSorted(arr) {
   return [...new Set(arr.filter(Boolean))].sort((a,b) => a.localeCompare(b));
 }
 
-/** ---------- CSV download (CURRENT FILTERED ROWS) ---------- */
-function csvEscape(value) {
-  const s = (value ?? "").toString();
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-function buildCsvFromObjects(objs, headers) {
-  const lines = [];
-  lines.push(headers.map(csvEscape).join(","));
-  for (const o of objs) {
-    const row = headers.map(h => csvEscape(o?.[h]));
-    lines.push(row.join(","));
-  }
-  return lines.join("\r\n");
-}
-
-function downloadFilteredCsv() {
-  if (!FILTERED.length) return;
-
-  // Use original CSV columns (not the _normalized fields)
-  const keys = Object.keys(FILTERED[0]).filter(k => !k.startsWith("_"));
-
-  const csv = buildCsvFromObjects(FILTERED, keys);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-
-  const now = new Date();
-  const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
-  a.download = `incidents_filtered_${stamp}.csv`;
-
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 /** ---------- Render cards ---------- */
 function render() {
   els.results.innerHTML = "";
@@ -377,4 +336,81 @@ function applyFilters() {
   const sort = norm(els.sort.value);
 
   const y = els.year ? norm(els.year.value) : "";
-  const m = els.m
+  const m = els.month ? norm(els.month.value) : "";
+
+  FILTERED = INCIDENTS.filter(it => {
+    if (st && it._state !== st) return false;
+    if (ev && it._eventType !== ev) return false;
+    if (ph && it._phase !== ph) return false;
+    if (q && !it._haystack.includes(q)) return false;
+
+    if (y || m) {
+      const d = getEventDate(it);
+      if (!d) return false;
+      if (y && d.getFullYear() !== Number(y)) return false;
+      if (m && d.getMonth() !== Number(m)) return false;
+    }
+
+    return true;
+  });
+
+  const toDate = (it) => {
+    const d = getEventDate(it);
+    return d ? d.getTime() : 0;
+  };
+
+  FILTERED.sort((a,b) => {
+    const da = toDate(a);
+    const db = toDate(b);
+    return sort === "oldest" ? (da - db) : (db - da);
+  });
+
+  render();
+}
+
+/** ---------- Init ---------- */
+async function init() {
+  try {
+    const res = await fetch("./data/incidents.csv", { cache: "no-store" });
+    if (!res.ok) throw new Error("Unable to load CSV");
+    const csvText = await res.text();
+
+    const rows = parseCsv(csvText).filter(r => r.length > 1);
+    if (!rows.length) throw new Error("CSV is empty");
+
+    const headers = rows[0].map(h => norm(h));
+    const dataRows = rows.slice(1);
+
+    const objects = dataRows.map(r => {
+      const obj = {};
+      headers.forEach((h, i) => (obj[h] = r[i] ?? ""));
+      return obj;
+    });
+
+    INCIDENTS = objects.map(toIncident);
+
+    // Populate dropdowns
+    populateYearMonthFilters(INCIDENTS);
+    fillSelect(els.state, uniqueSorted(INCIDENTS.map(x => x._state)), "All states");
+    fillSelect(els.event, uniqueSorted(INCIDENTS.map(x => x._eventType)), "All event types");
+    fillSelect(els.phase, uniqueSorted(INCIDENTS.map(x => x._phase)), "All phases");
+
+    // Hook events
+    if (els.search) els.search.addEventListener("input", applyFilters);
+    [els.state, els.event, els.phase, els.sort, els.year, els.month]
+      .filter(Boolean)
+      .forEach(el => el.addEventListener("change", applyFilters));
+
+    els.status.textContent = "Loaded OK (narrative column: raw_narrative)";
+    els.rowCount.textContent = `Rows detected: ${INCIDENTS.length}`;
+
+    // initial render
+    FILTERED = [...INCIDENTS];
+    applyFilters();
+  } catch (e) {
+    console.error(e);
+    els.status.textContent = `Load error: ${e.message || e}`;
+  }
+}
+
+init();
