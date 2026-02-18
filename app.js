@@ -1,7 +1,11 @@
 // app.js (client-side, GitHub Pages friendly)
 
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 const els = {
   search: document.getElementById("search"),
+  year: document.getElementById("yearFilter"),
+  month: document.getElementById("monthFilter"),
   state: document.getElementById("stateFilter"),
   event: document.getElementById("eventFilter"),
   phase: document.getElementById("phaseFilter"),
@@ -40,8 +44,7 @@ function parseCsv(text) {
       continue;
     }
     if ((c === "\n" || c === "\r") && !inQuotes) {
-      // handle \r\n
-      if (c === "\r" && n === "\n") i++;
+      if (c === "\r" && n === "\n") i++; // handle \r\n
       row.push(cur);
       cur = "";
       if (row.length > 1 || (row.length === 1 && row[0].trim() !== "")) rows.push(row);
@@ -77,9 +80,7 @@ function tzForState(state) {
   const s = (state || "").toUpperCase();
   if (s === "AK") return "America/Anchorage";
   if (s === "HI") return "Pacific/Honolulu";
-  // Pacific states
   if (["CA","OR","WA","NV"].includes(s)) return "America/Los_Angeles";
-  // Mountain-ish
   if (["ID","UT","WY","CO","MT","AZ","NM"].includes(s)) return "America/Denver";
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
@@ -102,9 +103,62 @@ function formatLocalFromISO(iso, state) {
   const hh = parts.find(p => p.type === "hour")?.value ?? "";
   const mm = parts.find(p => p.type === "minute")?.value ?? "";
   const tz = parts.find(p => p.type === "timeZoneName")?.value ?? "";
-
-  // Example: "12:50 AKDT"
   return hh && mm ? `${hh}:${mm} ${tz}` : "";
+}
+
+/** ---------- Date helpers (USE normalized fields) ---------- */
+function getEventDate(it) {
+  // Prefer normalized ISO
+  if (it && it._eventISO) {
+    const d = new Date(it._eventISO);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  // Fallback: normalized M/D/YYYY
+  if (it && it._eventDate) {
+    const m = String(it._eventDate).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const mm = Number(m[1]) - 1;
+      const dd = Number(m[2]);
+      const yy = Number(m[3]);
+      const d2 = new Date(yy, mm, dd);
+      if (!Number.isNaN(d2.getTime())) return d2;
+    }
+  }
+
+  return null;
+}
+
+function populateYearMonthFilters(rows) {
+  if (!els.year || !els.month) return;
+
+  // keep the first option ("All") and remove the rest
+  els.year.length = 1;
+  els.month.length = 1;
+
+  const years = new Set();
+  const months = new Set();
+
+  for (const r of rows) {
+    const d = getEventDate(r);
+    if (!d) continue;
+    years.add(d.getFullYear());
+    months.add(d.getMonth()); // 0-11
+  }
+
+  [...years].sort((a,b) => b-a).forEach(y => {
+    const opt = document.createElement("option");
+    opt.value = String(y);
+    opt.textContent = String(y);
+    els.year.appendChild(opt);
+  });
+
+  [...months].sort((a,b) => a-b).forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = String(m); // 0-11
+    opt.textContent = MONTHS[m];
+    els.month.appendChild(opt);
+  });
 }
 
 /** ---------- Build normalized incident objects ---------- */
@@ -128,29 +182,20 @@ function toIncident(row) {
   const eventTimeZ = getAny(row, ["event_time_z", "time_z", "Event time z"]);
   const eventISO = getAny(row, ["event_datetime_z", "datetime_z", "event_datetime", "Event datetime z"]);
 
-  // Narrative (THIS is what you wanted)
+  // Narrative
   const rawNarr = getAny(row, ["raw_narrative"]);
   const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
   const localTime = formatLocalFromISO(eventISO, state);
 
-  const line2Left = [
-    city || (airport ? airport : ""),
-    state,
-  ].filter(Boolean).join(", ");
-
-  const line2Right = [
-    eventDate || "",
-    eventTimeZ ? `${eventTimeZ}` : "",
-    localTime ? `${localTime}` : "",
-  ].filter(Boolean);
+  const line2Left = [city || (airport ? airport : ""), state].filter(Boolean).join(", ");
+  const line2Right = [eventDate || "", eventTimeZ ? `${eventTimeZ}` : "", localTime ? `${localTime}` : ""].filter(Boolean);
 
   const line2 = line2Right.length
     ? `${line2Left} • ${line2Right[0]} (${line2Right.slice(1).join(" / ")})`
     : (line2Left || "Unknown location • Unknown date");
 
-  // for filtering/search
   const haystack = [
     tail, model, city, state, airport, eventType, phase,
     reportDate, pob, injuries, damage, form8020,
@@ -201,7 +246,7 @@ function uniqueSorted(arr) {
   return [...new Set(arr.filter(Boolean))].sort((a,b) => a.localeCompare(b));
 }
 
-/** ---------- Render cards (THIS matches your CSS classes) ---------- */
+/** ---------- Render cards ---------- */
 function render() {
   els.results.innerHTML = "";
   els.rowCount.textContent = `Rows detected: ${FILTERED.length}`;
@@ -210,17 +255,14 @@ function render() {
     const card = document.createElement("article");
     card.className = "card";
 
-    // Line 1
     const l1 = document.createElement("div");
     l1.className = "l1";
     l1.textContent = `${it._tail} • ${it._model}`;
 
-    // Line 2
     const l2 = document.createElement("div");
     l2.className = "l2";
     l2.textContent = it._line2;
 
-    // Narrative section (line 3 + expand button on the right)
     const narrSection = document.createElement("div");
     narrSection.className = "narrSection";
 
@@ -250,7 +292,6 @@ function render() {
     narrSection.appendChild(narrText);
     narrSection.appendChild(btn);
 
-    // Metadata line (line 4) - shown only when expanded
     const metaLine = document.createElement("div");
     metaLine.className = "metaLine";
 
@@ -277,7 +318,6 @@ function render() {
 
     metaLine.appendChild(chips);
 
-    // Build card
     card.appendChild(l1);
     card.appendChild(l2);
     card.appendChild(narrSection);
@@ -295,22 +335,28 @@ function applyFilters() {
   const ph = norm(els.phase.value);
   const sort = norm(els.sort.value);
 
+  const y = els.year ? norm(els.year.value) : "";
+  const m = els.month ? norm(els.month.value) : "";
+
   FILTERED = INCIDENTS.filter(it => {
     if (st && it._state !== st) return false;
     if (ev && it._eventType !== ev) return false;
     if (ph && it._phase !== ph) return false;
     if (q && !it._haystack.includes(q)) return false;
+
+    if (y || m) {
+      const d = getEventDate(it);
+      if (!d) return false;
+      if (y && d.getFullYear() !== Number(y)) return false;
+      if (m && d.getMonth() !== Number(m)) return false;
+    }
+
     return true;
   });
 
   const toDate = (it) => {
-    const iso = it._eventISO;
-    if (iso) {
-      const d = new Date(iso);
-      if (!Number.isNaN(d.getTime())) return d.getTime();
-    }
-    // fallback: event_date + time_z (rough)
-    return 0;
+    const d = getEventDate(it);
+    return d ? d.getTime() : 0;
   };
 
   FILTERED.sort((a,b) => {
@@ -344,17 +390,19 @@ async function init() {
     INCIDENTS = objects.map(toIncident);
 
     // Populate dropdowns
+    populateYearMonthFilters(INCIDENTS);
     fillSelect(els.state, uniqueSorted(INCIDENTS.map(x => x._state)), "All states");
     fillSelect(els.event, uniqueSorted(INCIDENTS.map(x => x._eventType)), "All event types");
     fillSelect(els.phase, uniqueSorted(INCIDENTS.map(x => x._phase)), "All phases");
 
+    // Hook events
+    if (els.search) els.search.addEventListener("input", applyFilters);
+    [els.state, els.event, els.phase, els.sort, els.year, els.month]
+      .filter(Boolean)
+      .forEach(el => el.addEventListener("change", applyFilters));
+
     els.status.textContent = "Loaded OK (narrative column: raw_narrative)";
     els.rowCount.textContent = `Rows detected: ${INCIDENTS.length}`;
-
-    // hook events
-    [els.search, els.state, els.event, els.phase, els.sort].forEach(el =>
-      el.addEventListener("input", applyFilters)
-    );
 
     // initial render
     FILTERED = [...INCIDENTS];
