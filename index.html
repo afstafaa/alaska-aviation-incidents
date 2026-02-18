@@ -15,57 +15,59 @@
     </div>
   </header>
 
-  <main class="container">
-    <section class="controls">
+ <main class="container">
+  <section class="controls">
+    <div class="control">
+      <label for="search">Search</label>
+      <input id="search" type="search"
+             placeholder="Search narrative, city, airport, N-number(s), model…"
+             autocomplete="off" />
+    </div>
+
+    <div class="control">
+      <label for="yearFilter">Year</label>
+      <select id="yearFilter">
+        <option value="">All</option>
+      </select>
+    </div>
+
+    <div class="control">
+      <label for="monthFilter">Month</label>
+      <select id="monthFilter">
+        <option value="">All</option>
+      </select>
+    </div>
+
+    <div class="control">
+      <label for="stateFilter">State</label>
+      <select id="stateFilter"></select>
+    </div>
+
+    <div class="control">
+      <label for="eventFilter">Event type</label>
+      <select id="eventFilter"></select>
+    </div>
+
+    <div class="control">
+      <label for="phaseFilter">Phase</label>
+      <select id="phaseFilter"></select>
+    </div>
+
+    <!-- Sort + Download grouped together -->
+    <div class="control controlRow">
       <div class="control">
-        <label for="search">Search</label>
-        <input id="search" type="search" placeholder="Search narrative, city, airport, N-number(s), model…" autocomplete="off" />
+        <label for="sortOrder">Sort</label>
+        <select id="sortOrder">
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+        </select>
       </div>
 
-   <div class="control">
-  <label for="yearFilter">Year</label>
-  <select id="yearFilter">
-    <option value="">All</option>
-  </select>
-</div>
+      <button id="downloadBtn" class="btn" type="button">Download CSV</button>
+    </div>
+  </section>
+</main>
 
-<div class="control">
-  <label for="monthFilter">Month</label>
-  <select id="monthFilter">
-    <option value="">All</option>
-  </select>
-</div>
-
-	<div class="control">
-        <label for="stateFilter">State</label>
-        <select id="stateFilter"></select>
-      </div>
-
-      <div class="control">
-        <label for="eventFilter">Event type</label>
-        <select id="eventFilter"></select>
-      </div>
-
-      <div class="control">
-        <label for="phaseFilter">Phase</label>
-        <select id="phaseFilter"></select>
-      </div>
-
-      <div class="control controlRow">
-  <div class="control controlRow">
-  <div class="control">
-    <label for="sortOrder">Sort</label>
-    <select id="sortOrder">
-      <option value="newest">Newest</option>
-      <option value="oldest">Oldest</option>
-    </select>
-  </div>
-
-  <!-- IMPORTANT: paste your existing Download element here -->
-  <button id="downloadBtn" class="btn">Download CSV</button>
-</div>
-
-    </section>
 
     <section class="status">
       <div id="statusMessage">Loading…</div>
