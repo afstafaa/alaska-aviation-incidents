@@ -21,11 +21,11 @@ html, body{
 a{ color: inherit; }
 
 .container{
-width: calc(100% - 40px);
-  max-width: 1600px;
-  margin: 0 auto;
+display:flex;
+  flex-wrap: nowrap;
+  gap: 14px;
+  align-items: flex-end;
 }
-
 /* Header */
 .hero{
   padding: 42px 0 34px;
@@ -62,14 +62,12 @@ width: calc(100% - 40px);
 }
 
 /* Let items shrink */
-.controls .control{ min-width: 140px; flex: 0 1 auto; }
-.controls .control:first-child{ min-width: 260px; } /* Search */
+flex: 1 1 auto;
+  min-width: 140px;
+}
 
-.controlRow{
-  display:flex;
-  gap:10px;
-  align-items:flex-end;
-  flex: 0 0 auto;
+.controls .control:first-child{
+  min-width: 280px; /* Search bigger */
 }
 
 .controlRow button,
