@@ -256,6 +256,6 @@ a{ color: inherit; }
 
 .controlRow button,
 .controlRow a{
-  flex:0 0 auto;
-  white-space:nowrap;
+  padding: 10px 14px;
+  border-radius: 999px;
 }
