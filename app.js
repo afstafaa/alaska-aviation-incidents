@@ -367,7 +367,7 @@ function render() {
     const narrBody = document.createElement("div");
     narrBody.className = "detailBody";
     narrBody.textContent = it._narrative;
-    none.className = "noneText";
+
 
     narrText.appendChild(mkLabeledSection("Narrative", narrBody));
 
