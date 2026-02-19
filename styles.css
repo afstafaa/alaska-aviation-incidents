@@ -234,6 +234,14 @@ a{ color: inherit; }
 .onlyExpanded{ display: none; }
 .card.expanded .onlyExpanded{ display: block; }
 .noneText{ opacity: .6; font-size: 12px; }
+.detailBody{ margin-top: 6px; }
+
+/* Hide the one-line preview when expanded */
+.card.expanded .narrPreview{ display: none; }
+
+/* Add spacing between detail sections */
+.detailSection{ margin-top: 10px; }
+
 
 /* Responsive: allow wrap only on smaller screens */
 @media (max-width: 1100px){
