@@ -368,22 +368,32 @@ function render() {
     narrBody.className = "detailBody";
     narrBody.textContent = it._narrative;
 
+    const narrPreview = document.createElement("div");
+    narrPreview.className = "narrPreview";
+    narrPreview.textContent = it._narrative;
+    narrText.appendChild(narrPreview);
 
-    narrText.appendChild(mkLabeledSection("Narrative", narrBody));
+    const narrFullSection = mkLabeledSection("Narrative", narrBody);
+    narrFullSection.classList.add("onlyExpanded");
+    narrText.appendChild(narrFullSection);
 
     // Sources (always show label; show None if empty)
     const sourcesBlock = buildLinksBlock(it._sources);
-    sourcesBlock.classList.add("onlyExpanded"); // only show when expanded
-    narrText.appendChild(mkLabeledSection("Sources", sourcesBlock));
+    const sourcesSection = mkLabeledSection("Sources", sourcesBlock);
+    sourcesSection.classList.add("onlyExpanded");
+    narrText.appendChild(sourcesSection);
 
     // Media (always show label; show None if empty)
-    const mediaBlock = buildLinksBlock(it._media);
-    mediaBlock.classList.add("onlyExpanded"); // only show when expanded
-    narrText.appendChild(mkLabeledSection("Media", mediaBlock));
+    const media = buildLinksMedia(it._media);
+    const mediaSection = mkLabeledSection("Media", mediaBlock);
+    mediaSection.classList.add("onlyExpanded");
+    narrText.appendChild(mediaSection);
 
     // Aircraft Image (always show label; show None if empty)
-    const imgWrap = document.createElement("div");
-    imgWrap.className = "onlyExpanded";
+    const aircraft = buildLinksAircraft(it._aircraft);
+    const aircraftSection = mkLabeledSection("Aircraft", AircraftBlock);
+    aircraftSection.classList.add("onlyExpanded");
+    narrText.appendChild(aircraftSection);
 
     const imgUrl = norm(it._aircraftImageUrl);
     const imgType = (it._aircraftImageType || "").toLowerCase();
