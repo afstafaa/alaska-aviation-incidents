@@ -269,6 +269,13 @@ function toIncident(row) {
   const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
+  // Sources / Media / Aircraft image
+  const sourcesJson = getAny(row, ["sources_json"]);
+  const mediaJson = getAny(row, ["media_json"]);
+
+  const aircraftImageUrl = getAny(row, ["aircraft_image_url"]);
+  const aircraftImageType = getAny(row, ["aircraft_image_type"]); // actual | similar
+
   const localTime = formatLocalFromISO(eventISO, state);
 
   const line2Left = [city || (airport ? airport : ""), state].filter(Boolean).join(", ");
@@ -281,7 +288,7 @@ function toIncident(row) {
   const haystack = [
     tail, model, city, state, airport, eventType, phase,
     reportDate, pob, injuries, damage, form8020,
-    eventDate, eventTimeZ, narrative,
+    eventDate, eventTimeZ, narrative, sourcesJson, mediaJson, aircraftImageUrl, aircraftImageType,
   ].join(" ").toLowerCase();
 
   return {
@@ -305,6 +312,11 @@ function toIncident(row) {
     _line2: line2,
     _narrative: narrative,
     _haystack: haystack,
+    _sources: safeParseJsonArray(sourcesJson),
+    _media: safeParseJsonArray(mediaJson),
+    _aircraftImageUrl: aircraftImageUrl || "",
+    _aircraftImageType: (aircraftImageType || "").toLowerCase(),
+
   };
 }
 
@@ -351,16 +363,51 @@ function render() {
     const narrText = document.createElement("div");
     narrText.className = "narrText";
 
-    const narrPreview = document.createElement("div");
-    narrPreview.className = "narrPreview";
-    narrPreview.textContent = it._narrative;
+    // Narrative (always)
+    const narrBody = document.createElement("div");
+    narrBody.className = "detailBody";
+    narrBody.textContent = it._narrative;
+    none.className = "noneText";
 
-    const narrFull = document.createElement("div");
-    narrFull.className = "narrFull";
-    narrFull.textContent = it._narrative;
+    narrText.appendChild(mkLabeledSection("Narrative", narrBody));
 
-    narrText.appendChild(narrPreview);
-    narrText.appendChild(narrFull);
+    // Sources (always show label; show None if empty)
+    const sourcesBlock = buildLinksBlock(it._sources);
+    sourcesBlock.classList.add("onlyExpanded"); // only show when expanded
+    narrText.appendChild(mkLabeledSection("Sources", sourcesBlock));
+
+    // Media (always show label; show None if empty)
+    const mediaBlock = buildLinksBlock(it._media);
+    mediaBlock.classList.add("onlyExpanded"); // only show when expanded
+    narrText.appendChild(mkLabeledSection("Media", mediaBlock));
+
+    // Aircraft Image (always show label; show None if empty)
+    const imgWrap = document.createElement("div");
+    imgWrap.className = "onlyExpanded";
+
+    const imgUrl = norm(it._aircraftImageUrl);
+    const imgType = (it._aircraftImageType || "").toLowerCase();
+
+    if (!imgUrl) {
+      const none = document.createElement("div");
+      none.className = "noneText";
+      none.textContent = "None";
+      imgWrap.appendChild(none);
+    } else {
+      const a = document.createElement("a");
+      a.href = imgUrl;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+
+      const label = (imgType === "actual") ? "Actual Image"
+                  : (imgType === "similar") ? "Similar Aircraft"
+                  : "Aircraft Image";
+
+      a.textContent = `View (${label})`;
+      imgWrap.appendChild(a);
+    }
+
+    narrText.appendChild(mkLabeledSection("Aircraft Image", imgWrap));
 
     const btn = document.createElement("button");
     btn.className = "expandBtn";
