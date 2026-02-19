@@ -272,7 +272,6 @@ function toIncident(row) {
   // Sources / Media / Aircraft image
   const sourcesJson = getAny(row, ["sources_json"]);
   const mediaJson = getAny(row, ["media_json"]);
-
   const aircraftImageUrl = getAny(row, ["aircraft_image_url"]);
   const aircraftImageType = getAny(row, ["aircraft_image_type"]); // actual | similar
 
@@ -316,7 +315,6 @@ function toIncident(row) {
     _media: safeParseJsonArray(mediaJson),
     _aircraftImageUrl: aircraftImageUrl || "",
     _aircraftImageType: (aircraftImageType || "").toLowerCase(),
-
   };
 }
 
@@ -363,61 +361,65 @@ function render() {
     const narrText = document.createElement("div");
     narrText.className = "narrText";
 
-    // Narrative (always)
-    const narrBody = document.createElement("div");
-    narrBody.className = "detailBody";
-    narrBody.textContent = it._narrative;
+    // --- Narrative label ALWAYS visible, above the preview ---
+    const narrLabel = document.createElement("div");
+    narrLabel.className = "detailLabel";
+    narrLabel.textContent = "Narrative";
+    narrText.appendChild(narrLabel);
 
+    // Collapsed: one-line preview
     const narrPreview = document.createElement("div");
     narrPreview.className = "narrPreview";
     narrPreview.textContent = it._narrative;
     narrText.appendChild(narrPreview);
 
-    const narrFullSection = mkLabeledSection("Narrative", narrBody);
-    narrFullSection.classList.add("onlyExpanded");
-    narrText.appendChild(narrFullSection);
+    // Expanded: full narrative body (hidden until expanded)
+    const narrBody = document.createElement("div");
+    narrBody.className = "detailBody onlyExpanded";
+    narrBody.textContent = it._narrative;
+    narrText.appendChild(narrBody);
 
-  // Sources (expanded only)
-const sourcesBlock = buildLinksBlock(it._sources);
-const sourcesSection = mkLabeledSection("Sources", sourcesBlock);
-sourcesSection.classList.add("onlyExpanded");
-narrText.appendChild(sourcesSection);
+    // Sources (expanded only)
+    const sourcesBlock = buildLinksBlock(it._sources);
+    const sourcesSection = mkLabeledSection("Sources", sourcesBlock);
+    sourcesSection.classList.add("onlyExpanded");
+    narrText.appendChild(sourcesSection);
 
-// Media (expanded only)
-const mediaBlock = buildLinksBlock(it._media);
-const mediaSection = mkLabeledSection("Media", mediaBlock);
-mediaSection.classList.add("onlyExpanded");
-narrText.appendChild(mediaSection);
+    // Media (expanded only)
+    const mediaBlock = buildLinksBlock(it._media);
+    const mediaSection = mkLabeledSection("Media", mediaBlock);
+    mediaSection.classList.add("onlyExpanded");
+    narrText.appendChild(mediaSection);
 
-// Aircraft Image (expanded only)
-const imgWrap = document.createElement("div");
-imgWrap.className = "onlyExpanded";
+    // Aircraft Image (expanded only)
+    const imgWrap = document.createElement("div");
+    imgWrap.className = "onlyExpanded";
 
-const imgUrl = norm(it._aircraftImageUrl);
-const imgType = (it._aircraftImageType || "").toLowerCase();
+    const imgUrl = norm(it._aircraftImageUrl);
+    const imgType = (it._aircraftImageType || "").toLowerCase();
 
-if (!imgUrl) {
-  const none = document.createElement("div");
-  none.className = "noneText";
-  none.textContent = "None";
-  imgWrap.appendChild(none);
-} else {
-  const a = document.createElement("a");
-  a.href = imgUrl;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
+    if (!imgUrl) {
+      const none = document.createElement("div");
+      none.className = "noneText";
+      none.textContent = "None";
+      imgWrap.appendChild(none);
+    } else {
+      const a = document.createElement("a");
+      a.href = imgUrl;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
 
-  const label = (imgType === "actual") ? "Actual Image"
-              : (imgType === "similar") ? "Similar Aircraft"
-              : "Aircraft Image";
+      const label = (imgType === "actual") ? "Actual Image"
+                  : (imgType === "similar") ? "Similar Aircraft"
+                  : "Aircraft Image";
 
-  a.textContent = `View (${label})`;
-  imgWrap.appendChild(a);
-}
+      a.textContent = `View (${label})`;
+      imgWrap.appendChild(a);
+    }
 
-const imgSection = mkLabeledSection("Aircraft Image", imgWrap);
-imgSection.classList.add("onlyExpanded");
-narrText.appendChild(imgSection);
+    const imgSection = mkLabeledSection("Aircraft Image", imgWrap);
+    imgSection.classList.add("onlyExpanded");
+    narrText.appendChild(imgSection);
 
     const btn = document.createElement("button");
     btn.className = "expandBtn";
@@ -551,6 +553,7 @@ async function init() {
     els.status.textContent = `Load error: ${e.message || e}`;
   }
 }
+
 function csvEscape(value) {
   const s = (value ?? "").toString();
   // wrap in quotes if it contains comma, quote, or newline
@@ -562,8 +565,7 @@ function buildCsvFromObjects(objs) {
   if (!objs || !objs.length) return "";
 
   // Use the original CSV headers if possible (from first object keys)
-  const cols = Object.keys(objs[0]).filter(k => !k.startsWith("_")); 
-  // If you WANT the normalized fields too, remove the filter above.
+  const cols = Object.keys(objs[0]).filter(k => !k.startsWith("_"));
 
   const headerLine = cols.map(csvEscape).join(",");
   const lines = objs.map(o => cols.map(c => csvEscape(o[c])).join(","));
@@ -583,24 +585,25 @@ function downloadTextFile(filename, text) {
 
   setTimeout(() => URL.revokeObjectURL(url), 500);
 }
-    // Download filtered CSV
-    if (els.downloadBtn) {
-      els.downloadBtn.addEventListener("click", () => {
-        const rows = (FILTERED && FILTERED.length) ? FILTERED : INCIDENTS;
 
-        // Export ONLY original CSV columns (no _fields)
-        const exportRows = rows.map(r => {
-          const out = {};
-          for (const k in r) {
-            if (!k.startsWith("_")) out[k] = r[k];
-          }
-          return out;
-        });
+// Download filtered CSV
+if (els.downloadBtn) {
+  els.downloadBtn.addEventListener("click", () => {
+    const rows = (FILTERED && FILTERED.length) ? FILTERED : INCIDENTS;
 
-        const csv = buildCsvFromObjects(exportRows);
-        const stamp = new Date().toISOString().slice(0,10);
-        downloadTextFile(`incidents_export_${stamp}.csv`, csv);
-      });
-    }
+    // Export ONLY original CSV columns (no _fields)
+    const exportRows = rows.map(r => {
+      const out = {};
+      for (const k in r) {
+        if (!k.startsWith("_")) out[k] = r[k];
+      }
+      return out;
+    });
+
+    const csv = buildCsvFromObjects(exportRows);
+    const stamp = new Date().toISOString().slice(0,10);
+    downloadTextFile(`incidents_export_${stamp}.csv`, csv);
+  });
+}
 
 init();
