@@ -231,9 +231,9 @@ a{ color: inherit; }
 }
 
 /* Expanded state behavior */
-.card.expanded .narrFull{ display:block; }
-.card.expanded .metaLine{ display:flex; }
-.card.expanded .narrPreview{ display:none; }
+.onlyExpanded{ display: none; }
+.card.expanded .onlyExpanded{ display: block; }
+.noneText{ opacity: .6; font-size: 12px; }
 
 /* Responsive: allow wrap only on smaller screens */
 @media (max-width: 1100px){
