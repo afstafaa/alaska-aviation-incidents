@@ -418,9 +418,6 @@ if (!imgUrl) {
 const imgSection = mkLabeledSection("Aircraft Image", imgWrap);
 imgSection.classList.add("onlyExpanded");
 narrText.appendChild(imgSection);
-    }
-
-    narrText.appendChild(mkLabeledSection("Aircraft Image", imgWrap));
 
     const btn = document.createElement("button");
     btn.className = "expandBtn";
