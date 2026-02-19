@@ -377,44 +377,47 @@ function render() {
     narrFullSection.classList.add("onlyExpanded");
     narrText.appendChild(narrFullSection);
 
-    // Sources (always show label; show None if empty)
-    const sourcesBlock = buildLinksBlock(it._sources);
-    const sourcesSection = mkLabeledSection("Sources", sourcesBlock);
-    sourcesSection.classList.add("onlyExpanded");
-    narrText.appendChild(sourcesSection);
+  // Sources (expanded only)
+const sourcesBlock = buildLinksBlock(it._sources);
+const sourcesSection = mkLabeledSection("Sources", sourcesBlock);
+sourcesSection.classList.add("onlyExpanded");
+narrText.appendChild(sourcesSection);
 
-    // Media (always show label; show None if empty)
-    const media = buildLinksMedia(it._media);
-    const mediaSection = mkLabeledSection("Media", mediaBlock);
-    mediaSection.classList.add("onlyExpanded");
-    narrText.appendChild(mediaSection);
+// Media (expanded only)
+const mediaBlock = buildLinksBlock(it._media);
+const mediaSection = mkLabeledSection("Media", mediaBlock);
+mediaSection.classList.add("onlyExpanded");
+narrText.appendChild(mediaSection);
 
-    // Aircraft Image (always show label; show None if empty)
-    const aircraft = buildLinksAircraft(it._aircraft);
-    const aircraftSection = mkLabeledSection("Aircraft", AircraftBlock);
-    aircraftSection.classList.add("onlyExpanded");
-    narrText.appendChild(aircraftSection);
+// Aircraft Image (expanded only)
+const imgWrap = document.createElement("div");
+imgWrap.className = "onlyExpanded";
 
-    const imgUrl = norm(it._aircraftImageUrl);
-    const imgType = (it._aircraftImageType || "").toLowerCase();
+const imgUrl = norm(it._aircraftImageUrl);
+const imgType = (it._aircraftImageType || "").toLowerCase();
 
-    if (!imgUrl) {
-      const none = document.createElement("div");
-      none.className = "noneText";
-      none.textContent = "None";
-      imgWrap.appendChild(none);
-    } else {
-      const a = document.createElement("a");
-      a.href = imgUrl;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
+if (!imgUrl) {
+  const none = document.createElement("div");
+  none.className = "noneText";
+  none.textContent = "None";
+  imgWrap.appendChild(none);
+} else {
+  const a = document.createElement("a");
+  a.href = imgUrl;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
 
-      const label = (imgType === "actual") ? "Actual Image"
-                  : (imgType === "similar") ? "Similar Aircraft"
-                  : "Aircraft Image";
+  const label = (imgType === "actual") ? "Actual Image"
+              : (imgType === "similar") ? "Similar Aircraft"
+              : "Aircraft Image";
 
-      a.textContent = `View (${label})`;
-      imgWrap.appendChild(a);
+  a.textContent = `View (${label})`;
+  imgWrap.appendChild(a);
+}
+
+const imgSection = mkLabeledSection("Aircraft Image", imgWrap);
+imgSection.classList.add("onlyExpanded");
+narrText.appendChild(imgSection);
     }
 
     narrText.appendChild(mkLabeledSection("Aircraft Image", imgWrap));
