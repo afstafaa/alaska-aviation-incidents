@@ -358,26 +358,17 @@ function render() {
     const narrSection = document.createElement("div");
     narrSection.className = "narrSection";
 
-    const narrText = document.createElement("div");
-    narrText.className = "narrText";
-
-    // --- Narrative label ALWAYS visible, above the preview ---
+    // Narrative label (always visible)
     const narrLabel = document.createElement("div");
     narrLabel.className = "detailLabel";
     narrLabel.textContent = "Narrative";
     narrText.appendChild(narrLabel);
 
-    // Collapsed: one-line preview
-    const narrPreview = document.createElement("div");
-    narrPreview.className = "narrPreview";
-    narrPreview.textContent = it._narrative;
-    narrText.appendChild(narrPreview);
-
-    // Expanded: full narrative body (hidden until expanded)
-    const narrBody = document.createElement("div");
-    narrBody.className = "detailBody onlyExpanded";
-    narrBody.textContent = it._narrative;
-    narrText.appendChild(narrBody);
+    // Narrative text (one element; clamped until expanded)
+    const narrTextEl = document.createElement("div");
+    narrTextEl.className = "narrTextBlock";
+    narrTextEl.textContent = it._narrative;
+    narrText.appendChild(narrTextEl);
 
     // Sources (expanded only)
     const sourcesBlock = buildLinksBlock(it._sources);
