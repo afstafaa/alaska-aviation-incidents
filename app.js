@@ -358,6 +358,9 @@ function render() {
     const narrSection = document.createElement("div");
     narrSection.className = "narrSection";
 
+    const narrText = document.createElement("div");
+    narrText.className = "narrText";
+
     // Narrative label (always visible)
     const narrLabel = document.createElement("div");
     narrLabel.className = "detailLabel";

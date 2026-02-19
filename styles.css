@@ -21,7 +21,7 @@ html, body{
 a{ color: inherit; }
 
 .container{
-  width: min(1400px, calc(100% - 48px));  /* wider so the full control row fits */
+  width: min(1400px, calc(100% - 48px));
   margin: 0 auto;
 }
 
@@ -55,16 +55,15 @@ a{ color: inherit; }
   align-items: end;
   gap: 14px;
 
-  /* ONE ROW layout */
   grid-template-columns:
-    2.2fr   /* Search */
-    .75fr   /* Year */
-    .75fr   /* Month */
-    .9fr    /* State */
-    1.1fr   /* Event type */
-    1.0fr   /* Phase */
-    .9fr    /* Sort */
-    auto;   /* Download */
+    2.2fr
+    .75fr
+    .75fr
+    .9fr
+    1.1fr
+    1.0fr
+    .9fr
+    auto;
 }
 
 .control label{
@@ -94,7 +93,7 @@ a{ color: inherit; }
   box-shadow: 0 0 0 3px rgba(31, 106, 165, .18);
 }
 
-/* Download button (pill bubble) */
+/* Download button */
 .download{
   display:flex;
   align-items:flex-end;
@@ -123,7 +122,7 @@ a{ color: inherit; }
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 14px 0 0;     /* <-- important: no weird left indent */
+  padding: 14px 0 0;
   color: rgba(15,23,42,.65);
   font-size: 13px;
 }
@@ -136,7 +135,7 @@ a{ color: inherit; }
   padding-bottom: 40px;
 }
 
-/* --- Card layout --- */
+/* Card layout */
 .card{
   background: var(--card);
   border: 1px solid rgba(15,23,42,.08);
@@ -145,7 +144,7 @@ a{ color: inherit; }
   box-shadow: 0 14px 34px rgba(15,23,42,.08);
 }
 
-/* Line 1: tail + model */
+/* Line 1 */
 .l1{
   font-weight: 800;
   font-size: 18px;
@@ -153,7 +152,7 @@ a{ color: inherit; }
   color: var(--text);
 }
 
-/* Line 2: location/date/time */
+/* Line 2 */
 .l2{
   margin-top: 6px;
   font-weight: 400;
@@ -174,7 +173,17 @@ a{ color: inherit; }
   min-width: 0;
 }
 
-/* Narrative: same font always, clamp only when collapsed */
+/* Detail labels/sections */
+.detailLabel{
+  display:block;
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(15,23,42,.7);
+  margin-bottom: 6px;
+}
+.detailSection{ margin-top: 10px; }
+
+/* Narrative: same font always; clamp only when collapsed */
 .narrTextBlock{
   white-space: pre-wrap;
   font-size: 12px;
@@ -182,27 +191,16 @@ a{ color: inherit; }
   color: rgba(15,23,42,.82);
 
   display: -webkit-box;
-  -webkit-line-clamp: 1;        /* collapsed = 1 line */
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-/* Expanded = remove clamp so it shows full narrative */
+/* Expanded: remove clamp so it shows full narrative */
 .card.expanded .narrTextBlock{
   -webkit-line-clamp: unset;
   display: block;
   overflow: visible;
-}
-
-/* Preview: one line */
-.narrPreview{
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 12px;
-  line-height: 1.35;
-  color: rgba(15,23,42,.82);
 }
 
 /* Expand/Collapse button */
@@ -253,17 +251,19 @@ a{ color: inherit; }
 /* Expanded state behavior */
 .onlyExpanded{ display: none; }
 .card.expanded .onlyExpanded{ display: block; }
+.card.expanded .metaLine{ display: flex; }
+
 .noneText{ opacity: .6; font-size: 12px; }
-.detailBody{ margin-top: 6px; }
 
-/* Hide the one-line preview when expanded */
-.card.expanded .narrPreview{ display: none; }
+/* Link list styling (optional but helps) */
+.linkList{
+  margin: 0;
+  padding-left: 18px;
+}
+.linkList li{ margin: 4px 0; }
+.linkMeta{ opacity: .7; font-size: 12px; }
 
-/* Add spacing between detail sections */
-.detailSection{ margin-top: 10px; }
-
-
-/* Responsive: allow wrap only on smaller screens */
+/* Responsive */
 @media (max-width: 1100px){
   .controls{
     grid-template-columns: 1fr 1fr;
