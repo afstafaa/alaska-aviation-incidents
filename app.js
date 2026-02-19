@@ -107,6 +107,87 @@ function formatLocalFromISO(iso, state) {
   return hh && mm ? `${hh}:${mm} ${tz}` : "";
 }
 
+function safeParseJsonArray(s) {
+  const raw = norm(s);
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildLinksBlock(items) {
+  // items: [{title,url,publisher,date,type,platform}]
+  const wrap = document.createElement("div");
+  wrap.className = "linksBlock";
+
+  if (!items || !items.length) {
+    const none = document.createElement("div");
+    none.className = "noneText";
+    none.textContent = "None";
+    wrap.appendChild(none);
+    return wrap;
+  }
+
+  const ul = document.createElement("ul");
+  ul.className = "linkList";
+
+  items.forEach(it => {
+    const url = norm(it.url);
+    const title = norm(it.title) || url || "Link";
+    const publisher = norm(it.publisher);
+    const date = norm(it.date);
+
+    if (!url) return;
+
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = title;
+
+    li.appendChild(a);
+
+    const metaBits = [publisher, date].filter(Boolean);
+    if (metaBits.length) {
+      const meta = document.createElement("span");
+      meta.className = "linkMeta";
+      meta.textContent = ` — ${metaBits.join(" • ")}`;
+      li.appendChild(meta);
+    }
+
+    ul.appendChild(li);
+  });
+
+  // If everything got filtered due to missing URLs:
+  if (!ul.children.length) {
+    const none = document.createElement("div");
+    none.className = "noneText";
+    none.textContent = "None";
+    wrap.appendChild(none);
+    return wrap;
+  }
+
+  wrap.appendChild(ul);
+  return wrap;
+}
+
+function mkLabeledSection(labelText, contentEl) {
+  const section = document.createElement("div");
+  section.className = "detailSection";
+
+  const label = document.createElement("div");
+  label.className = "detailLabel";
+  label.textContent = labelText;
+
+  section.appendChild(label);
+  section.appendChild(contentEl);
+  return section;
+}
+
 /** ---------- Date helpers (USE normalized fields) ---------- */
 function getEventDate(it) {
   // Prefer normalized ISO
