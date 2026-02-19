@@ -233,14 +233,14 @@ a{ color: inherit; }
 /* Expanded state behavior */
 .onlyExpanded{ display: none; }
 .card.expanded .onlyExpanded{ display: block; }
-.noneText{ opacity: .6; font-size: 12px; }
-.detailBody{ margin-top: 6px; }
+.noneText{ opacity: .6; font-size: 10px; }
+.detailBody{ margin-top: 0px; }
 
 /* Hide the one-line preview when expanded */
 .card.expanded .narrPreview{ display: none; }
 
 /* Add spacing between detail sections */
-.detailSection{ margin-top: 10px; }
+.detailSection{ margin-top: 5px; }
 
 
 /* Responsive: allow wrap only on smaller screens */
