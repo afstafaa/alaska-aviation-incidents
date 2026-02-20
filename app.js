@@ -133,31 +133,33 @@ function extractAircraftDesignator(text, callsign = "") {
   const candidates = [...U.matchAll(/\b([A-Z]{1,3}-?\d{2,4}[A-Z]?)\b/g)].map(x => x[1]);
 
   for (const c of candidates) {
+    if (callsign && c === callsign) continue;
     if (!isBadTypeToken(c, U)) return c;
-  }
-  return "";
 }
 
 function isBadTypeToken(token, fullText) {
   const t = token.toUpperCase();
+ 
+  // Reject callsign
+  if (callsign && t === callsign) return true;
+ 
+  // Reject runway tokens
+  if (/^RWY\d+/.test(t)) return true;
 
-  // Reject runway-like tokens
-  if (t.startsWith("RWY")) return true;
-
-  // Reject airport identifiers in location form: "WALDPORT, OR (R33)"
-  // Common: (R33) where token is 1 letter + 2-3 digits
+  // Reject pure airport identifiers like R33 when in parentheses
   if (/^[A-Z]\d{2,3}$/.test(t) && new RegExp(`\\(\\s*${t}\\s*\\)`).test(fullText)) return true;
 
-  // Common non-type junk seen in FAA narratives
+  // Reject obvious non-aircraft system codes
   const bad = new Set([
     "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV",
     "SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY",
     "LAX","SFO","HHR","SBS"
   ]);
+
   if (bad.has(t)) return true;
 
-  // Also reject obvious tail-like Nnumbers masquerading
-  if (t.startsWith("N")) return true;
+  // Reject anything that looks like a tail
+  if (/^N[0-9A-Z]+$/.test(t)) return true;
 
   return false;
 }
