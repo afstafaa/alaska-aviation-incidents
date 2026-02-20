@@ -140,7 +140,7 @@ function extractAircraftDesignator(text, callsign = "") {
 function isBadTypeToken(token, fullText) {
   const t = token.toUpperCase();
  
-  // Reject callsign
+  
   if (callsign && t === callsign) return true;
  
   // Reject runway tokens
