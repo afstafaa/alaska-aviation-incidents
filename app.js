@@ -120,35 +120,31 @@ function extractAircraftDesignator(text, callsign = "") {
   const U = norm(text).toUpperCase();
   if (!U) return "";
 
-  // EPIC special case
-  if (U.includes("/EPIC") || U.includes(" EPIC")) return "EPIC";
-
-  // Explicit slash form: N98FK/EPIC
-  let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9-]{2,10})\b/);
+  // Slash form: N98FK/EPIC
+  let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9]{1,3})\b/);
   if (m) return m[1];
 
-  // If callsign is known, try token after callsign
+  // Callsign-guided: "... UAL1871, B738."
   if (callsign) {
-    const re = new RegExp(`\\b${callsign}\\b[^\\n\\r]{0,60}?\\b([A-Z]{1,3}-?\\d{2,4}[A-Z]?)\\b`);
+    const cs = callsign.toUpperCase();
+    const re = new RegExp(`\\b${cs}\\b[^\\n\\r]{0,80}?\\b([A-Z][A-Z0-9]{1,3})\\b`);
     m = U.match(re);
-    if (m && !isBadTypeToken(m[1], U, callsign)) return m[1];
+    if (m && !isBadTypeToken(m[1], U)) return m[1];
   }
 
-  // Scan for candidates
-  const candidates = [...U.matchAll(/\b([A-Z]{1,3}-?\d{2,4}[A-Z]?)\b/g)].map(x => x[1]);
+  // General scan
+  const candidates = [...U.matchAll(/\b([A-Z][A-Z0-9]{1,3})\b/g)].map(x => x[1]);
 
   for (const c of candidates) {
-    if (c === callsign) continue;
-    if (!isBadTypeToken(c, U, callsign)) return c;
+    if (callsign && c === callsign) continue;
+    if (!isBadTypeToken(c, U)) return c;
   }
 
   return "";
 }
 
-function isBadTypeToken(token, fullText, callsign = "") {
+function isBadTypeToken(token, fullText) {
   const t = token.toUpperCase();
-
-  if (callsign && t === callsign) return true;
 
   // Reject runway tokens
   if (/^RWY\d+/.test(t)) return true;
@@ -157,16 +153,15 @@ function isBadTypeToken(token, fullText, callsign = "") {
   if (/^[A-Z]\d{2,3}$/.test(t) &&
       new RegExp(`\\(\\s*${t}\\s*\\)`).test(fullText)) return true;
 
-  // Reject non-aircraft codes
+  // Reject system/location codes
   const bad = new Set([
     "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV",
     "SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY",
     "LAX","SFO","HHR","SBS"
   ]);
-
   if (bad.has(t)) return true;
 
-  // Reject N-numbers
+  // Reject tails
   if (/^N[0-9A-Z]+$/.test(t)) return true;
 
   return false;
@@ -431,9 +426,7 @@ function toIncident(row) {
   }
 
   // ---- Model ----
-  let model =
-    typeDesignator ||
-    getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
+  let model = typeDesignator || getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
 
   if (!model)
     model = extractAircraftDesignator(narrative, callsign);
