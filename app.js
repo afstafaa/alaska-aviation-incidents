@@ -60,21 +60,6 @@ function getAny(obj, keys) {
 }
 
 /** ---------- Extraction helpers ---------- */
-
-function extractNNumber(text) {
-  const t = norm(text).toUpperCase();
-  if (!t) return "";
-  const m = t.match(/\bN[0-9A-Z]{1,5}\b/);
-  return m ? m[0] : "";
-}
-
-function extractAllNNumbers(text) {
-  const t = norm(text).toUpperCase();
-  if (!t) return [];
-  const m = t.match(/\bN[0-9A-Z]{1,5}\b/g);
-  return m ? [...new Set(m)] : [];
-}
-
 function looksLikeNNumber(s) {
   const t = norm(s).toUpperCase();
   return /^N[0-9A-Z]{1,5}$/.test(t);
@@ -83,32 +68,66 @@ function looksLikeNNumber(s) {
 function pickPrimaryTail(field) {
   const raw = norm(field);
   if (!raw) return "";
-  // Handles: "N2996C; N6397V; N8241A"
   const parts = raw.split(/[;,\s]+/).map(p => norm(p)).filter(Boolean);
   const first = parts.find(p => looksLikeNNumber(p));
   return first ? first.toUpperCase() : (looksLikeNNumber(raw) ? raw.toUpperCase() : raw);
 }
 
-function extractAircraftDesignator(text) {
+function extractNNumber(text) {
+  const t = norm(text).toUpperCase();
+  if (!t) return "";
+  const m = t.match(/\bN[0-9A-Z]{1,5}\b/);
+  return m ? m[0] : "";
+}
+
+function extractCallsign(text) {
+  const t = norm(text).toUpperCase();
+  if (!t) return "";
+  // Common WSA format: "), (HHR), WSN2, ..."
+  let m = t.match(/\)\s*,\s*([A-Z]{2,4}\d{1,4})\b/);
+  if (m && !m[1].startsWith("N")) return m[1];
+
+  // Or comma-separated: ", WSN2,"
+  m = t.match(/,\s*([A-Z]{2,4}\d{1,4})\s*,/);
+  if (m && !m[1].startsWith("N")) return m[1];
+
+  // Or leading token
+  m = t.match(/^\(?([A-Z]{2,4}\d{1,4})\b/);
+  if (m && !m[1].startsWith("N")) return m[1];
+
+  return "";
+}
+
+function extractAircraftDesignator(text, callsign = "") {
   const U = norm(text).toUpperCase();
   if (!U) return "";
 
-  // Prefer explicit "KING-AIR B350", "B350", "E75L", etc.
-  // Hyphenated like PC-12:
-  const hyphen = U.match(/\b([A-Z]{1,3})-([0-9]{1,3}[A-Z]?)\b/);
-  if (hyphen) return `${hyphen[1]}-${hyphen[2]}`;
+  // Slash form: N98FK/EPIC
+  let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9-]{2,10})\b/);
+  if (m) return m[1];
 
-  // Typical token like E75L, B350, C182, PA28, B738, A320, PC12:
-  const token = U.match(/\b([A-Z]{1,3}[0-9]{2,4}[A-Z]?)\b/);
-  if (token) {
-    const bad = new Set(["USC","FAA","FSS","ROCC","ROK","CTAF","IFR","VFR","ZDV","ZMA","ZAN","ZSE","ZLA","ZNY","SCT","LAX","SFO"]);
-    if (!bad.has(token[1])) return token[1];
+  // If callsign present, grab a token like B350 after it
+  if (callsign) {
+    m = U.match(new RegExp(`\\b${callsign}\\b.*?\\b([A-Z]{1,3}-?\\d{2,4}[A-Z]?)\\b`));
+    if (m) return m[1];
   }
+
+  // Hyphenated like PC-12
+  m = U.match(/\b([A-Z]{1,3})-([0-9]{1,3}[A-Z]?)\b/);
+  if (m) return `${m[1]}-${m[2]}`;
+
+  // General token like B350, E75L, C182
+  const bad = new Set(["FAA","FSS","IFR","VFR","CTAF","SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY","HHR","SBS","ALNOT","RNAV"]);
+  const token = U.match(/\b([A-Z]{1,3}-?\d{2,4}[A-Z]?)\b/);
+  if (token && !bad.has(token[1]) && !token[1].startsWith("N")) return token[1];
+
+  // Word-based fallback
+  if (U.includes(" EPIC")) return "EPIC";
+
   return "";
 }
 
 function extractFieldFromNarrative(narr, label) {
-  // label like "POB", "Injuries", "Damage"
   const t = norm(narr);
   if (!t) return "";
   const re = new RegExp(`\\b${label}\\s*:\\s*([^\\.,\\n\\r]+)`, "i");
@@ -127,7 +146,6 @@ function extract80209FromNarrative(narr) {
 }
 
 function extractReportDateFromNarrative(narr) {
-  // Often ends like: "2/12/2026 1536Z."
   const t = norm(narr);
   if (!t) return "";
   const matches = [...t.matchAll(/\b(\d{1,2}\/\d{1,2}\/\d{4})\s+(\d{3,4})Z\b/g)];
@@ -156,20 +174,17 @@ function inferPhaseFromNarrative(narr) {
 function inferEventTypeFromNarrative(narr) {
   const t = norm(narr).toLowerCase();
   if (!t) return "";
-
   const rules = [
-    ["Bird strike", ["bird strike", "bird"]],
+    ["Windshield crack", ["windshield", "crack in the windshield", "cracked windshield"]],
     ["Gear-up landing", ["gear-up", "gear up"]],
-    ["Engine fire", ["engine fire", "fire in the engine", "smoke", "fire warning"]],
+    ["Engine fire", ["engine fire", "fire warning", "smoke", "fire"]],
     ["Hard landing", ["hard landing", "bounced", "bounce", "firm landing"]],
     ["Tail strike", ["tail strike", "tailstrike"]],
     ["Runway excursion", ["excursion", "ran off", "departed the runway", "veer off"]],
-    ["Windshield crack", ["crack in the windshield", "windshield crack", "cracked windshield"]],
-    ["Fuel issue", ["fuel", "fuel starvation", "fuel exhaustion"]],
-    ["Emergency return", ["requested to return", "returned to", "declared an emergency"]],
+    ["Bird strike", ["bird strike"]],
     ["Accident/Crash", ["crashed", "impact", "wreckage", "downed aircraft"]],
+    ["Emergency return", ["declared an emergency", "requested it to return", "returned to"]],
   ];
-
   for (const [type, keys] of rules) {
     if (keys.some(k => t.includes(k))) return type;
   }
@@ -343,30 +358,37 @@ function toIncident(row) {
   const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
-  // Tail: ONLY real tail fields; DO NOT treat aircraft_primary as a tail unless it is an N-number
+  // NEW SCHEMA FIELDS
+  let callsign = getAny(row, ["callsign_primary"]);
+  let typeDesignator = getAny(row, ["aircraft_type_designator"]);
+
+  // Tail first (true N-number fields), then narrative
   let tail = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
   tail = pickPrimaryTail(tail);
-
-  // As a last resort, only accept aircraft_primary if it looks like an N-number
-  const ap = getAny(row, ["aircraft_primary"]);
-  if (!tail && looksLikeNNumber(ap)) tail = ap.toUpperCase();
-
   if (!tail) tail = extractNNumber(narrative);
 
-  // Model/type: structured first; otherwise narrative
-  let model = getAny(row, ["aircraft_primary_model", "aircraft_primary_m", "aircraft_model", "model", "aircraft_type"]);
-  if (!model) model = extractAircraftDesignator(narrative);
+  // Callsign fallback (if schema empty)
+  if (!callsign) callsign = extractCallsign(narrative);
 
-  // Other structured fields
+  // Type/designator fallback (if schema empty)
+  if (!typeDesignator) typeDesignator = extractAircraftDesignator(narrative, callsign);
+
+  // Display ID: tail if present, else callsign if present
+  const displayId = tail || callsign || "Unknown ID";
+
+  // Model/type for header: typeDesignator first, else model field, else inferred
+  let model = typeDesignator || getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
+  if (!model) model = extractAircraftDesignator(narrative, callsign);
+
   let eventType = getAny(row, ["event_type", "Event type", "type"]);
   let phase = getAny(row, ["phase", "Phase"]);
   let reportDate = getAny(row, ["report_date", "Report"]);
   let pob = getAny(row, ["pob", "POB"]);
   let injuries = getAny(row, ["injuries", "Injuries"]);
   let damage = getAny(row, ["damage", "Damage"]);
-  let form8020 = getAny(row, ["8020_9", "8020-9", "faa_form_8020_9"]);
+  let form8020 = getAny(row, ["form_8020_9", "8020_9", "8020-9", "faa_form_8020_9"]);
 
-  // Fallbacks from narrative (your requirement)
+  // Narrative-derived fallbacks
   if (!reportDate) reportDate = extractReportDateFromNarrative(narrative);
   if (!pob) pob = extractFieldFromNarrative(narrative, "POB");
   if (!injuries) injuries = extractFieldFromNarrative(narrative, "Injuries");
@@ -381,14 +403,15 @@ function toIncident(row) {
   const city = getAny(row, ["city", "location", "loc_city"]);
   const airport = getAny(row, ["airport_code", "airport"]);
 
-  // Dates/times
   const eventDate = getAny(row, ["event_date", "date", "Event date"]);
   const eventTimeZ = getAny(row, ["event_time_z", "time_z", "Event time z"]);
-  const eventISO = getAny(row, ["event_datetime_z", "datetime_z", "event_datetime", "Event datetime z"]);
+  const eventISO = getAny(row, ["event_datetime_z", "event_datetime_z", "datetime_z", "event_datetime", "Event datetime z"]);
 
-  // Links/media/image
   const sourcesJson = getAny(row, ["sources_json"]);
-  const mediaJson = getAny(row, ["media_json"]);
+
+  // NOTE: you have a typo column in the CSV: media_jason
+  const mediaJson = getAny(row, ["media_json", "media_jason"]);
+
   const aircraftImageUrl = getAny(row, ["aircraft_image_url"]);
   const aircraftImageType = getAny(row, ["aircraft_image_type"]); // actual | similar
 
@@ -402,7 +425,7 @@ function toIncident(row) {
     : (line2Left || "Unknown location • Unknown date");
 
   const haystack = [
-    tail, model, city, state, airport, eventType, phase,
+    displayId, tail, callsign, model, typeDesignator, city, state, airport, eventType, phase,
     reportDate, pob, injuries, damage, form8020,
     eventDate, eventTimeZ, narrative, sourcesJson, mediaJson, aircraftImageUrl, aircraftImageType,
   ].join(" ").toLowerCase();
@@ -410,8 +433,10 @@ function toIncident(row) {
   return {
     ...row,
     _state: state,
-    _tail: tail || "Unknown tail",
-    _model: model || "Unknown model",
+    _tail: displayId,
+    _model: model || "Unknown type",
+    _callsign: callsign || "",
+    _typeDesignator: typeDesignator || "",
     _city: city,
     _airport: airport,
     _eventType: eventType || "—",
@@ -456,25 +481,23 @@ function uniqueSorted(arr) {
 }
 
 /** ---------- Aircraft image helpers ---------- */
-function buildImageSearchLinks(tail, model) {
+function buildImageSearchLinks(idValue, model) {
   const links = [];
-  const t = norm(tail);
+  const idv = norm(idValue);
   const m = norm(model);
 
-  if (t && !t.toLowerCase().includes("unknown")) {
+  if (idv && !idv.toLowerCase().includes("unknown")) {
     links.push({
-      label: `Search photos for ${t} (actual)`,
-      url: `https://duckduckgo.com/?q=${encodeURIComponent(t + " aircraft photo")}&iax=images&ia=images`,
+      label: `Search photos for ${idv} (actual)`,
+      url: `https://duckduckgo.com/?q=${encodeURIComponent(idv + " aircraft photo")}&iax=images&ia=images`,
     });
   }
-
   if (m && !m.toLowerCase().includes("unknown") && m !== "—") {
     links.push({
       label: `Search photos for ${m} (generic type)`,
       url: `https://duckduckgo.com/?q=${encodeURIComponent(m + " aircraft")}&iax=images&ia=images`,
     });
   }
-
   return links;
 }
 
