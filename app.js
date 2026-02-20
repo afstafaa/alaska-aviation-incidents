@@ -164,62 +164,43 @@ function extractAircraftDesignator(text, callsign = "") {
   const U = norm(text).toUpperCase();
   if (!U) return "";
 
-  // ----- PRIORITY KEYWORDS -----
-  if (U.includes("EXPERIMENTAL")) return "EXPERIMENTAL";
-  if (U.includes("ULTRA-LIGHT") || U.includes("ULTRALIGHT")) return "ULTRALIGHT";
-  if (U.includes("SPORTCRUISER")) return "SPORTCRUISER";
-  if (U.includes("TBM7")) return "TBM7";
+  // ----- Explicit manufacturer patterns -----
 
-  // EPIC special case
-  if (U.includes("/EPIC") || U.includes(" EPIC")) return "EPIC";
-
-  // Slash format: N98FK/EPIC
-  let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9-]{2,10})\b/);
+  // CHAMPION 7GCBC
+  let m = U.match(/\bCHAMPION\s+([A-Z0-9-]{2,8})\b/);
   if (m) return m[1];
 
-  // State codes to block
-  const states = new Set([
-    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN",
-    "IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV",
-    "NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN",
-    "TX","UT","VT","VA","WA","WV","WI","WY"
-  ]);
+  // AMERICAN CHAMPION 8KCAB
+  m = U.match(/\bAMERICAN\s+CHAMPION\s+([A-Z0-9-]{2,8})\b/);
+  if (m) return m[1];
 
-  // System codes to block
-  const badCodes = new Set([
-    "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV",
-    "SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY"
-  ]);
+  // BEECH N35
+  m = U.match(/\bBEECH\s+([A-Z0-9-]{2,8})\b/);
+  if (m) return m[1];
 
-  // General candidate scan
-  const candidates = [...U.matchAll(/\b([A-Z0-9-]{2,8})\b/g)]
-    .map(x => x[1]);
+  // EXTRA 300
+  m = U.match(/\bEXTRA\s+([A-Z0-9-]{2,8})\b/);
+  if (m) return m[1];
 
-  for (const c of candidates) {
+  // Generic ICAO style (C172, PA31, B738, TBM7)
+  m = U.match(/\b([A-Z]{1,3}\d{2,4}[A-Z]?)\b/);
+  if (m) {
+    const candidate = m[1];
 
-    if (!c) continue;
-    if (c === callsign) continue;
+    // Reject if looks like airport (1 letter + 2 digits like F70, A11)
+    if (/^[A-Z]\d{2}$/.test(candidate)) return "";
 
     // Reject runway
-    if (/^RWY\d+/.test(c)) continue;
+    if (/^RWY\d+/.test(candidate)) return "";
 
-    // Reject N-numbers
-    if (/^N[0-9A-Z]+$/.test(c)) continue;
+    // Reject callsign duplication
+    if (candidate === callsign) return "";
 
-    // Reject 3–4 letter airport codes (PDX, SFO, FSOC, etc.)
-    if (/^[A-Z]{3,4}$/.test(c)) continue;
-
-    // Reject state abbreviations
-    if (states.has(c)) continue;
-
-    // Reject system codes
-    if (badCodes.has(c)) continue;
-
-    // Must contain at least one digit to be valid ICAO type
-    if (!/\d/.test(c)) continue;
-
-    return c;
+    return candidate;
   }
+
+  // Experimental fallback
+  if (U.includes("EXPERIMENTAL")) return "EXPERIMENTAL";
 
   return "";
 }
