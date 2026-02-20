@@ -120,48 +120,44 @@ function extractAircraftDesignator(text, callsign = "") {
   const U = norm(text).toUpperCase();
   if (!U) return "";
 
-  // Slash form (N98FK/EPIC)
-  let m = U.match(/\bN[1-9][0-9A-Z]{0,4}\s*\/\s*([A-Z0-9-]{2,6})\b/);
+  // EPIC special case
+  if (U.includes("/EPIC") || U.includes(" EPIC")) return "EPIC";
+
+  // Explicit slash form: N98FK/EPIC
+  let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9-]{2,10})\b/);
   if (m) return m[1];
 
-  // Callsign anchored pattern
+  // If callsign is known, try token after callsign
   if (callsign) {
-    const cs = callsign.toUpperCase();
-    const re = new RegExp(`\\b${cs}\\b[^\\n\\r]{0,80}?\\b([A-Z][A-Z0-9]{1,4})\\b`);
+    const re = new RegExp(`\\b${callsign}\\b[^\\n\\r]{0,60}?\\b([A-Z]{1,3}-?\\d{2,4}[A-Z]?)\\b`);
     m = U.match(re);
     if (m && !isBadTypeToken(m[1], U, callsign)) return m[1];
   }
 
-  // General scan (allow 1–4 digits for TBM7 etc.)
-  const candidates =
-    [...U.matchAll(/\b([A-Z]{1,4}[0-9]{1,4}[A-Z]?)\b/g)]
-      .map(x => x[1]);
+  // Scan for candidates
+  const candidates = [...U.matchAll(/\b([A-Z]{1,3}-?\d{2,4}[A-Z]?)\b/g)].map(x => x[1]);
 
   for (const c of candidates) {
-    if (callsign && c === callsign) continue;
+    if (c === callsign) continue;
     if (!isBadTypeToken(c, U, callsign)) return c;
-
-return "";
   }
-
-  // Special case for experimental narrative
-  if (U.includes("EXPERIMENTAL")) return "EXPERIMENTAL";
 
   return "";
 }
 
 function isBadTypeToken(token, fullText, callsign = "") {
   const t = token.toUpperCase();
-  const cs = (callsign || "").toUpperCase();
 
-  if (cs && t === cs) return true;
+  if (callsign && t === callsign) return true;
 
-  if (/^RWY\d+/.test(t)) return true;              // Runway
-  if (/^[A-Z]\d{2,3}$/.test(t) &&                 // Airport ID
+  // Reject runway tokens
+  if (/^RWY\d+/.test(t)) return true;
+
+  // Reject airport identifiers like (R33)
+  if (/^[A-Z]\d{2,3}$/.test(t) &&
       new RegExp(`\\(\\s*${t}\\s*\\)`).test(fullText)) return true;
 
-  if (/^N[1-9]/.test(t)) return true;              // Tail numbers
-
+  // Reject non-aircraft codes
   const bad = new Set([
     "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV",
     "SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY",
@@ -169,6 +165,9 @@ function isBadTypeToken(token, fullText, callsign = "") {
   ]);
 
   if (bad.has(t)) return true;
+
+  // Reject N-numbers
+  if (/^N[0-9A-Z]+$/.test(t)) return true;
 
   return false;
 }
