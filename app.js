@@ -68,9 +68,14 @@ function looksLikeNNumber(s) {
 function pickPrimaryTail(field) {
   const raw = norm(field);
   if (!raw) return "";
-  const parts = raw.split(/[;,\s]+/).map(p => norm(p)).filter(Boolean);
-  const first = parts.find(p => looksLikeNNumber(p));
-  return first ? first.toUpperCase() : (looksLikeNNumber(raw) ? raw.toUpperCase() : raw);
+
+  const parts = raw.split(/[;,\s]+/)
+    .map(p => norm(p).toUpperCase())
+    .filter(Boolean);
+
+  const valid = parts.find(p => /^N[1-9][0-9A-Z]{0,4}$/.test(p));
+
+  return valid || "";
 }
 
 function extractNNumber(text) {
@@ -115,49 +120,53 @@ function extractAircraftDesignator(text, callsign = "") {
   const U = norm(text).toUpperCase();
   if (!U) return "";
 
-  // Slash form: N98FK/EPIC
-  let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9]{1,3})\b/);
+  // Slash form (N98FK/EPIC)
+  let m = U.match(/\bN[1-9][0-9A-Z]{0,4}\s*\/\s*([A-Z0-9-]{2,6})\b/);
   if (m) return m[1];
 
-  // Callsign-guided: "... UAL1871, B738."
+  // Callsign anchored pattern
   if (callsign) {
     const cs = callsign.toUpperCase();
-    const re = new RegExp(`\\b${cs}\\b[^\\n\\r]{0,80}?\\b([A-Z][A-Z0-9]{1,3})\\b`);
+    const re = new RegExp(`\\b${cs}\\b[^\\n\\r]{0,80}?\\b([A-Z][A-Z0-9]{1,4})\\b`);
     m = U.match(re);
-    if (m && !isBadTypeToken(m[1], U)) return m[1];
+    if (m && !isBadTypeToken(m[1], U, callsign)) return m[1];
   }
 
-  // General scan
-  const candidates = [...U.matchAll(/\b([A-Z][A-Z0-9]{1,3})\b/g)].map(x => x[1]);
+  // General scan (allow 1–4 digits for TBM7 etc.)
+  const candidates =
+    [...U.matchAll(/\b([A-Z]{1,4}[0-9]{1,4}[A-Z]?)\b/g)]
+      .map(x => x[1]);
 
   for (const c of candidates) {
     if (callsign && c === callsign) continue;
-    if (!isBadTypeToken(c, U)) return c;
+    if (!isBadTypeToken(c, U, callsign)) return c;
   }
+
+  // Special case for experimental narrative
+  if (U.includes("EXPERIMENTAL")) return "EXPERIMENTAL";
 
   return "";
 }
 
-function isBadTypeToken(token, fullText) {
+function isBadTypeToken(token, fullText, callsign = "") {
   const t = token.toUpperCase();
+  const cs = (callsign || "").toUpperCase();
 
-  // Reject runway tokens
-  if (/^RWY\d+/.test(t)) return true;
+  if (cs && t === cs) return true;
 
-  // Reject airport identifiers like (R33)
-  if (/^[A-Z]\d{2,3}$/.test(t) &&
+  if (/^RWY\d+/.test(t)) return true;              // Runway
+  if (/^[A-Z]\d{2,3}$/.test(t) &&                 // Airport ID
       new RegExp(`\\(\\s*${t}\\s*\\)`).test(fullText)) return true;
 
-  // Reject system/location codes
+  if (/^N[1-9]/.test(t)) return true;              // Tail numbers
+
   const bad = new Set([
     "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV",
     "SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY",
     "LAX","SFO","HHR","SBS"
   ]);
-  if (bad.has(t)) return true;
 
-  // Reject tails
-  if (/^N[0-9A-Z]+$/.test(t)) return true;
+  if (bad.has(t)) return true;
 
   return false;
 }
@@ -412,16 +421,25 @@ function toIncident(row) {
   // - If callsign exists: CALLSIGN (TAIL) or CALLSIGN
   // - Else if tail exists: TAIL
   // - Else: NONE
-  const displayId = callsign
-    ? (tail ? `${callsign} (${tail})` : callsign)
-    : (tail ? tail : "NONE");
+  // Build display ID
+let displayId = "NONE";
 
-  // Model/type for header: typeDesignator first, else model field, else inferred
-  let model = typeDesignator || getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
-  if (!model) model = extractAircraftDesignator(narrative, callsign);
+if (callsign && tail) {
+  displayId = `${callsign} (${tail})`;
+} else if (callsign) {
+  displayId = callsign;
+} else if (tail) {
+  displayId = tail;
+}
 
-  // EPIC display tweak
-  const modelDisplay = (model === "EPIC") ? "EPIC (E1000)" : model;
+// Model/type
+let model = typeDesignator ||
+            getAny(row, ["aircraft_primary_model","aircraft_model","model","aircraft_type"]);
+
+if (!model) model = extractAircraftDesignator(narrative, callsign);
+
+// EPIC tweak
+if (model === "EPIC") model = "EPIC (E1000)";
 
   let eventType = getAny(row, ["event_type", "Event type", "type"]);
   let phase = getAny(row, ["phase", "Phase"]);
@@ -475,7 +493,7 @@ function toIncident(row) {
     ...row,
     _state: state,
     _tail: displayId,
-    _model: modelDisplay || "Unknown type",
+    _model: model || "Unknown type",
     _callsign: callsign || "",
     _typeDesignator: typeDesignator || "",
     _city: city,
