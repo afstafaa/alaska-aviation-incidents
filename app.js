@@ -403,45 +403,50 @@ function toIncident(row) {
   const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
-  // NEW SCHEMA FIELDS
+  // ---- Callsign / Type from schema ----
   let callsign = getAny(row, ["callsign_primary"]);
   let typeDesignator = getAny(row, ["aircraft_type_designator"]);
 
-  // Tail first (true N-number fields), then narrative
+  // ---- Tail (strict N-number only) ----
   let tail = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
-  tail = pickPrimaryTail(tail);
+  tail = isValidNNumber(tail) ? tail.toUpperCase() : "";
   if (!tail) tail = extractNNumber(narrative);
 
-  // Callsign fallback (if schema empty)
+  // ---- Callsign fallback ----
+  callsign = isValidCallsign(callsign) ? callsign.toUpperCase() : "";
   if (!callsign) callsign = extractCallsign(narrative);
 
-  // Type/designator fallback (if schema empty)
-  if (!typeDesignator) typeDesignator = extractAircraftDesignator(narrative, callsign);
+  // ---- Type fallback ----
+  typeDesignator = isValidTypeDesignator(typeDesignator, narrative, callsign)
+    ? typeDesignator.toUpperCase()
+    : "";
 
-  // Display ID format you want:
-  // - If callsign exists: CALLSIGN (TAIL) or CALLSIGN
-  // - Else if tail exists: TAIL
-  // - Else: NONE
-  // Build display ID
-let displayId = "NONE";
+  if (!typeDesignator)
+    typeDesignator = extractAircraftDesignator(narrative, callsign);
 
-if (callsign && tail) {
-  displayId = `${callsign} (${tail})`;
-} else if (callsign) {
-  displayId = callsign;
-} else if (tail) {
-  displayId = tail;
-}
+  // ---- Build display ID ----
+  let displayId = "NONE";
 
-// Model/type
-let model = typeDesignator ||
-            getAny(row, ["aircraft_primary_model","aircraft_model","model","aircraft_type"]);
+  if (callsign && tail) {
+    displayId = `${callsign} (${tail})`;
+  } else if (callsign) {
+    displayId = callsign;
+  } else if (tail) {
+    displayId = tail;
+  }
 
-if (!model) model = extractAircraftDesignator(narrative, callsign);
+  // ---- Model/type for header ----
+  let model =
+    typeDesignator ||
+    getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
 
-// EPIC tweak
-if (model === "EPIC") model = "EPIC (E1000)";
+  if (!model)
+    model = extractAircraftDesignator(narrative, callsign);
 
+  if (model === "EPIC")
+    model = "EPIC (E1000)";
+
+  // ---- Other fields ----
   let eventType = getAny(row, ["event_type", "Event type", "type"]);
   let phase = getAny(row, ["phase", "Phase"]);
   let reportDate = getAny(row, ["report_date", "Report"]);
@@ -450,7 +455,6 @@ if (model === "EPIC") model = "EPIC (E1000)";
   let damage = getAny(row, ["damage", "Damage"]);
   let form8020 = getAny(row, ["form_8020_9", "8020_9", "8020-9", "faa_form_8020_9"]);
 
-  // Narrative-derived fallbacks
   if (!reportDate) reportDate = extractReportDateFromNarrative(narrative);
   if (!pob) pob = extractFieldFromNarrative(narrative, "POB");
   if (!injuries) injuries = extractFieldFromNarrative(narrative, "Injuries");
@@ -467,27 +471,28 @@ if (model === "EPIC") model = "EPIC (E1000)";
 
   const eventDate = getAny(row, ["event_date", "date", "Event date"]);
   const eventTimeZ = getAny(row, ["event_time_z", "time_z", "Event time z"]);
-  const eventISO = getAny(row, ["event_datetime_z", "event_datetime_z", "datetime_z", "event_datetime", "Event datetime z"]);
+  const eventISO = getAny(row, ["event_datetime_z", "datetime_z", "event_datetime", "Event datetime z"]);
 
   const sourcesJson = getAny(row, ["sources_json"]);
-  const mediaJson = getAny(row, ["media_json", "media_jason"]); // keep typo support
+  const mediaJson = getAny(row, ["media_json", "media_jason"]);
 
   const aircraftImageUrl = getAny(row, ["aircraft_image_url"]);
-  const aircraftImageType = getAny(row, ["aircraft_image_type"]); // actual | similar
+  const aircraftImageType = getAny(row, ["aircraft_image_type"]);
 
   const localTime = formatLocalFromISO(eventISO, state);
 
-  const line2Left = [city || (airport ? airport : ""), state].filter(Boolean).join(", ");
-  const line2Right = [eventDate || "", eventTimeZ ? `${eventTimeZ}` : "", localTime ? `${localTime}` : ""].filter(Boolean);
+  const line2Left = [city || airport || "", state].filter(Boolean).join(", ");
+  const line2Right = [eventDate || "", eventTimeZ || "", localTime || ""].filter(Boolean);
 
   const line2 = line2Right.length
     ? `${line2Left} • ${line2Right[0]} (${line2Right.slice(1).join(" / ")})`
     : (line2Left || "Unknown location • Unknown date");
 
   const haystack = [
-    displayId, tail, callsign, model, typeDesignator, city, state, airport, eventType, phase,
+    displayId, tail, callsign, model, typeDesignator,
+    city, state, airport, eventType, phase,
     reportDate, pob, injuries, damage, form8020,
-    eventDate, eventTimeZ, narrative, sourcesJson, mediaJson, aircraftImageUrl, aircraftImageType,
+    eventDate, eventTimeZ, narrative
   ].join(" ").toLowerCase();
 
   return {
@@ -519,23 +524,6 @@ if (model === "EPIC") model = "EPIC (E1000)";
     _aircraftImageType: (aircraftImageType || "").toLowerCase(),
   };
 }
-
-/** ---------- UI: dropdowns ---------- */
-function fillSelect(selectEl, values, allLabel) {
-  selectEl.innerHTML = "";
-  const optAll = document.createElement("option");
-  optAll.value = "";
-  optAll.textContent = allLabel;
-  selectEl.appendChild(optAll);
-
-  values.forEach(v => {
-    const opt = document.createElement("option");
-    opt.value = v;
-    opt.textContent = v;
-    selectEl.appendChild(opt);
-  });
-}
-
 function uniqueSorted(arr) {
   return [...new Set(arr.filter(Boolean))].sort((a,b) => a.localeCompare(b));
 }
