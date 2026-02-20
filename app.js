@@ -393,38 +393,35 @@ function toIncident(row) {
   const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
- // NEW SCHEMA FIELDS
-let callsign = getAny(row, ["callsign_primary"]);
-let typeDesignator = getAny(row, ["aircraft_type_designator"]);
+  // NEW SCHEMA FIELDS
+  let callsign = getAny(row, ["callsign_primary"]);
+  let typeDesignator = getAny(row, ["aircraft_type_designator"]);
 
-// Tail first (true N-number fields), then narrative
-let tail = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
-tail = pickPrimaryTail(tail);
-if (!tail) tail = extractNNumber(narrative);
+  // Tail first (true N-number fields), then narrative
+  let tail = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
+  tail = pickPrimaryTail(tail);
+  if (!tail) tail = extractNNumber(narrative);
 
-// Callsign fallback (if schema empty)
-if (!callsign) callsign = extractCallsign(narrative);
+  // Callsign fallback (if schema empty)
+  if (!callsign) callsign = extractCallsign(narrative);
 
-// Type/designator fallback (if schema empty)
+  // Type/designator fallback (if schema empty)
+  if (!typeDesignator) typeDesignator = extractAircraftDesignator(narrative, callsign);
 
-// Display ID format you want:
-// - If callsign exists: CALLSIGN (TAIL) or CALLSIGN
-// - Else if tail exists: TAIL
-// - Else: NONE
-const displayId = callsign
-  ? (tail ? `${callsign} (${tail})` : callsign)
-  : (tail ? tail : "NONE");
-
-// Model/type for header: typeDesignator first, else model field, else inferred
-let model = typeDesignator || getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
-if (!model) model = extractAircraftDesignator(narrative, callsign);
-
-// EPIC display tweak
-const modelDisplay = (model === "EPIC") ? "EPIC (E1000)" : model;
+  // Display ID format you want:
+  // - If callsign exists: CALLSIGN (TAIL) or CALLSIGN
+  // - Else if tail exists: TAIL
+  // - Else: NONE
+  const displayId = callsign
+    ? (tail ? `${callsign} (${tail})` : callsign)
+    : (tail ? tail : "NONE");
 
   // Model/type for header: typeDesignator first, else model field, else inferred
   let model = typeDesignator || getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
   if (!model) model = extractAircraftDesignator(narrative, callsign);
+
+  // EPIC display tweak
+  const modelDisplay = (model === "EPIC") ? "EPIC (E1000)" : model;
 
   let eventType = getAny(row, ["event_type", "Event type", "type"]);
   let phase = getAny(row, ["phase", "Phase"]);
@@ -454,9 +451,7 @@ const modelDisplay = (model === "EPIC") ? "EPIC (E1000)" : model;
   const eventISO = getAny(row, ["event_datetime_z", "event_datetime_z", "datetime_z", "event_datetime", "Event datetime z"]);
 
   const sourcesJson = getAny(row, ["sources_json"]);
-
-  // NOTE: you have a typo column in the CSV: media_jason
-  const mediaJson = getAny(row, ["media_json", "media_jason"]);
+  const mediaJson = getAny(row, ["media_json", "media_jason"]); // keep typo support
 
   const aircraftImageUrl = getAny(row, ["aircraft_image_url"]);
   const aircraftImageType = getAny(row, ["aircraft_image_type"]); // actual | similar
@@ -471,7 +466,7 @@ const modelDisplay = (model === "EPIC") ? "EPIC (E1000)" : model;
     : (line2Left || "Unknown location • Unknown date");
 
   const haystack = [
-    displayId, tail, callsign, model, typeDesignator, city, state, airport, eventType, phase,
+    displayId, tail, callsign, modelDisplay, typeDesignator, city, state, airport, eventType, phase,
     reportDate, pob, injuries, damage, form8020,
     eventDate, eventTimeZ, narrative, sourcesJson, mediaJson, aircraftImageUrl, aircraftImageType,
   ].join(" ").toLowerCase();
@@ -480,7 +475,7 @@ const modelDisplay = (model === "EPIC") ? "EPIC (E1000)" : model;
     ...row,
     _state: state,
     _tail: displayId,
-    _model: model || "Unknown type",
+    _model: modelDisplay || "Unknown type",
     _callsign: callsign || "",
     _typeDesignator: typeDesignator || "",
     _city: city,
