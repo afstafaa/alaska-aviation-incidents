@@ -1,5 +1,7 @@
 // app.js (client-side, GitHub Pages friendly)
 
+// -------------------- Constants & DOM --------------------
+
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 const els = {
@@ -19,7 +21,8 @@ const els = {
 let INCIDENTS = [];
 let FILTERED = [];
 
-/** ---------- CSV parsing (handles quotes/newlines) ---------- */
+// -------------------- CSV parsing (handles quotes/newlines) --------------------
+
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -59,10 +62,60 @@ function getAny(obj, keys) {
   return "";
 }
 
-/** ---------- Extraction helpers ---------- */
+// -------------------- Validation helpers --------------------
+// These prevent schema pollution (NO/NOT/R33/RWY11/JBU2233/SKW3905) from becoming authoritative.
+
+function isValidCallsign(value) {
+  const t = norm(value).toUpperCase();
+  if (!t) return false;
+  if (!/\d/.test(t)) return false;               // reject NO / NOT
+  if (t.startsWith("RWY") || t.startsWith("GATE")) return false;
+  // typical ops callsigns in your narratives: UAL1871, JBU2233, SKW3905, WSN2
+  return /^[A-Z]{2,4}\d{1,4}$/.test(t);
+}
+
+function isValidNNumber(value) {
+  const t = norm(value).toUpperCase();
+  if (!t) return false;
+  // Conservative US N-number: N + 1-5 alphanumerics, must not start with 0 after N
+  // (You can tighten further later; this blocks NOT and similar junk.)
+  return /^N[1-9][0-9A-Z]{0,4}$/.test(t);
+}
+
+function isAirportIdTokenInParens(token, fullText) {
+  const t = token.toUpperCase();
+  if (!/^[A-Z]\d{2,3}$/.test(t)) return false;
+  return new RegExp(`\\(\\s*${t}\\s*\\)`).test(fullText);
+}
+
+function isValidTypeDesignator(value, narrative = "", callsign = "") {
+  const t = norm(value).toUpperCase();
+  const cs = norm(callsign).toUpperCase();
+  const n = norm(narrative).toUpperCase();
+
+  if (!t) return false;
+  if (t === "EXPERIMENTAL") return true;
+  if (cs && t === cs) return false;
+  if (t.startsWith("RWY")) return false;
+  if (isAirportIdTokenInParens(t, n)) return false;
+
+  // ICAO-style: 2–4 chars, begins with a letter (A21N, E75L, B738, TBM7, B350)
+  if (!/^[A-Z][A-Z0-9]{1,3}$/.test(t)) return false;
+
+  // Avoid obvious non-type system tokens (short but common in narratives)
+  const bad = new Set(["FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV","SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY"]);
+  if (bad.has(t)) return false;
+
+  // Avoid tails as types
+  if (t.startsWith("N")) return false;
+
+  return true;
+}
+
+// -------------------- Extraction helpers --------------------
+
 function looksLikeNNumber(s) {
-  const t = norm(s).toUpperCase();
-  return /^N[0-9A-Z]{1,5}$/.test(t);
+  return isValidNNumber(s);
 }
 
 function pickPrimaryTail(field) {
@@ -73,15 +126,14 @@ function pickPrimaryTail(field) {
     .map(p => norm(p).toUpperCase())
     .filter(Boolean);
 
-  const valid = parts.find(p => /^N[1-9][0-9A-Z]{0,4}$/.test(p));
-
+  const valid = parts.find(p => isValidNNumber(p));
   return valid || "";
 }
 
 function extractNNumber(text) {
-  const t = norm(text).toUpperCase();
-  if (!t) return "";
-  const m = t.match(/\bN[0-9A-Z]{1,5}\b/);
+  const T = norm(text).toUpperCase();
+  if (!T) return "";
+  const m = T.match(/\bN[1-9][0-9A-Z]{0,4}\b/);
   return m ? m[0] : "";
 }
 
@@ -89,82 +141,67 @@ function extractCallsign(text) {
   const t = norm(text).toUpperCase();
   if (!t) return "";
 
-  const reject = (cs) => {
-    if (!cs) return true;
-    if (!/\d/.test(cs)) return true;          // must contain a digit
-    if (cs.startsWith("RWY")) return true;     // RWY11
-    if (cs.startsWith("GATE")) return true;
-    return false;
-  };
-
   // common commas: ", UAL1871, B738."
   let m = t.match(/,\s*([A-Z]{2,4}\d{1,4})\s*,/);
-  if (m && !reject(m[1])) return m[1];
+  if (m && isValidCallsign(m[1])) return m[1];
 
   // after parens: "..., (HHR), WSN2, KING-AIR B350."
   m = t.match(/\)\s*,\s*([A-Z]{2,4}\d{1,4})\b/);
-  if (m && !reject(m[1])) return m[1];
+  if (m && isValidCallsign(m[1])) return m[1];
 
   // inside parens sometimes: "(JBU2233)"
   m = t.match(/\(\s*([A-Z]{2,4}\d{1,4})\s*\)/);
-  if (m && !reject(m[1])) return m[1];
+  if (m && isValidCallsign(m[1])) return m[1];
 
   // leading token
   m = t.match(/^\(?([A-Z]{2,4}\d{1,4})\b/);
-  if (m && !reject(m[1])) return m[1];
+  if (m && isValidCallsign(m[1])) return m[1];
 
   return "";
 }
 
 function extractAircraftDesignator(text, callsign = "") {
-  const U = norm(text).toUpperCase();
-  if (!U) return "";
+  const U0 = norm(text).toUpperCase();
+  if (!U0) return "";
 
-  // Slash form: N98FK/EPIC
-  let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9]{1,3})\b/);
-  if (m) return m[1];
+  const cs = norm(callsign).toUpperCase();
+  const U = U0;
 
-  // Callsign-guided: "... UAL1871, B738."
-  if (callsign) {
-    const cs = callsign.toUpperCase();
-    const re = new RegExp(`\\b${cs}\\b[^\\n\\r]{0,80}?\\b([A-Z][A-Z0-9]{1,3})\\b`);
-    m = U.match(re);
-    if (m && !isBadTypeToken(m[1], U)) return m[1];
+  // EPIC special case (you want EPIC (E1000) display later)
+  if (U.includes("/EPIC") || U.includes(" EPIC")) return "EPIC";
+
+  // Hyphenated forms like PC-12 -> PC12 (common narrative style)
+  const hy = U.match(/\b([A-Z]{1,2})-(\d{1,3}[A-Z]?)\b/);
+  if (hy) {
+    const cand = (hy[1] + hy[2]).toUpperCase();
+    if (isValidTypeDesignator(cand, U, cs)) return cand;
   }
 
-  // General scan
+  // Slash form: N98FK/EPIC
+  let m = U.match(/\bN[1-9][0-9A-Z]{0,4}\s*\/\s*([A-Z][A-Z0-9]{1,3})\b/);
+  if (m && isValidTypeDesignator(m[1], U, cs)) return m[1];
+
+  // Callsign anchored: UAL1871 ... B738  OR  WSN2 ... B350
+  if (cs) {
+    const re = new RegExp(`\\b${cs}\\b[^\\n\\r]{0,80}?\\b([A-Z][A-Z0-9]{1,3})\\b`);
+    m = U.match(re);
+    if (m && isValidTypeDesignator(m[1], U, cs)) return m[1];
+  }
+
+  // General scan: only consider 2–4 char ICAO-like tokens
   const candidates = [...U.matchAll(/\b([A-Z][A-Z0-9]{1,3})\b/g)].map(x => x[1]);
 
   for (const c of candidates) {
-    if (callsign && c === callsign) continue;
-    if (!isBadTypeToken(c, U)) return c;
+    if (cs && c === cs) continue;
+    if (isValidTypeDesignator(c, U, cs)) return c;
+  }
+
+  // Experimental inference
+  if (U.includes("EXPERIMENTAL") || U.includes("UNREGISTERED") || U.includes("ULTRALIGHT") || U.includes("ULTRA-LIGHT")) {
+    return "EXPERIMENTAL";
   }
 
   return "";
-}
-
-function isBadTypeToken(token, fullText) {
-  const t = token.toUpperCase();
-
-  // Reject runway tokens
-  if (/^RWY\d+/.test(t)) return true;
-
-  // Reject airport identifiers like (R33)
-  if (/^[A-Z]\d{2,3}$/.test(t) &&
-      new RegExp(`\\(\\s*${t}\\s*\\)`).test(fullText)) return true;
-
-  // Reject system/location codes
-  const bad = new Set([
-    "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV",
-    "SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY",
-    "LAX","SFO","HHR","SBS"
-  ]);
-  if (bad.has(t)) return true;
-
-  // Reject tails
-  if (/^N[0-9A-Z]+$/.test(t)) return true;
-
-  return false;
 }
 
 function extractFieldFromNarrative(narr, label) {
@@ -231,14 +268,67 @@ function inferEventTypeFromNarrative(narr) {
   return "";
 }
 
-/** ---------- Time helpers ---------- */
+// -------------------- Time helpers --------------------
+// Important change: if state is unknown, return "" (hide local time) instead of viewer TZ.
+
 function tzForState(state) {
   const s = (state || "").toUpperCase();
-  if (s === "AK") return "America/Anchorage";
-  if (s === "HI") return "Pacific/Honolulu";
-  if (["CA","OR","WA","NV"].includes(s)) return "America/Los_Angeles";
-  if (["ID","UT","WY","CO","MT","AZ","NM"].includes(s)) return "America/Denver";
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const map = {
+    AK: "America/Anchorage",
+    HI: "Pacific/Honolulu",
+    CA: "America/Los_Angeles",
+    OR: "America/Los_Angeles",
+    WA: "America/Los_Angeles",
+    NV: "America/Los_Angeles",
+    ID: "America/Denver",
+    UT: "America/Denver",
+    WY: "America/Denver",
+    CO: "America/Denver",
+    MT: "America/Denver",
+    AZ: "America/Phoenix",
+    NM: "America/Denver",
+    ND: "America/Chicago",
+    SD: "America/Chicago",
+    NE: "America/Chicago",
+    KS: "America/Chicago",
+    OK: "America/Chicago",
+    TX: "America/Chicago",
+    MN: "America/Chicago",
+    IA: "America/Chicago",
+    MO: "America/Chicago",
+    AR: "America/Chicago",
+    LA: "America/Chicago",
+    WI: "America/Chicago",
+    IL: "America/Chicago",
+    MS: "America/Chicago",
+    AL: "America/Chicago",
+    TN: "America/Chicago",
+    KY: "America/New_York",
+    IN: "America/Indiana/Indianapolis",
+    MI: "America/Detroit",
+    OH: "America/New_York",
+    GA: "America/New_York",
+    FL: "America/New_York",
+    SC: "America/New_York",
+    NC: "America/New_York",
+    VA: "America/New_York",
+    WV: "America/New_York",
+    PA: "America/New_York",
+    NY: "America/New_York",
+    NJ: "America/New_York",
+    DE: "America/New_York",
+    MD: "America/New_York",
+    DC: "America/New_York",
+    CT: "America/New_York",
+    RI: "America/New_York",
+    MA: "America/New_York",
+    VT: "America/New_York",
+    NH: "America/New_York",
+    ME: "America/New_York",
+  };
+
+  return map[s] || "";
 }
 
 function formatLocalFromISO(iso, state) {
@@ -248,6 +338,8 @@ function formatLocalFromISO(iso, state) {
   if (Number.isNaN(d.getTime())) return "";
 
   const timeZone = tzForState(state);
+  if (!timeZone) return "";
+
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     hour: "numeric",
@@ -262,6 +354,8 @@ function formatLocalFromISO(iso, state) {
   return hh && mm ? `${hh}:${mm} ${tz}` : "";
 }
 
+// -------------------- JSON helpers --------------------
+
 function safeParseJsonArray(s) {
   const raw = norm(s);
   if (!raw) return [];
@@ -272,6 +366,8 @@ function safeParseJsonArray(s) {
     return [];
   }
 }
+
+// -------------------- UI blocks --------------------
 
 function buildLinksBlock(items) {
   const wrap = document.createElement("div");
@@ -340,7 +436,8 @@ function mkLabeledSection(labelText, contentEl) {
   return section;
 }
 
-/** ---------- Date helpers ---------- */
+// -------------------- Date helpers --------------------
+
 function getEventDate(it) {
   if (it && it._eventISO) {
     const d = new Date(it._eventISO);
@@ -390,7 +487,8 @@ function populateYearMonthFilters(rows) {
   });
 }
 
-/** ---------- Build normalized incident objects ---------- */
+// -------------------- Normalize incident objects --------------------
+
 function toIncident(row) {
   const state = getAny(row, ["state", "State"]);
 
@@ -398,43 +496,35 @@ function toIncident(row) {
   const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
-  // ---- Callsign / Type from schema ----
+  // Schema fields (sanitized before use)
   let callsign = getAny(row, ["callsign_primary"]);
-  let typeDesignator = getAny(row, ["aircraft_type_designator"]);
-
-  // ---- Tail ----
-  let tail = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
-  tail = pickPrimaryTail(tail);
-  if (!tail) tail = extractNNumber(narrative);
-
-  // ---- Callsign fallback ----
+  callsign = isValidCallsign(callsign) ? callsign.toUpperCase() : "";
   if (!callsign) callsign = extractCallsign(narrative);
 
-  // ---- Type fallback ----
-  if (!typeDesignator)
-    typeDesignator = extractAircraftDesignator(narrative, callsign);
+  let typeDesignator = getAny(row, ["aircraft_type_designator"]);
+  typeDesignator = isValidTypeDesignator(typeDesignator, narrative, callsign) ? typeDesignator.toUpperCase() : "";
+  if (!typeDesignator) typeDesignator = extractAircraftDesignator(narrative, callsign);
 
-  // ---- Display ID ----
+  // Tail
+  let tailField = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
+  let tail = pickPrimaryTail(tailField);
+  if (!tail) tail = extractNNumber(narrative);
+
+  // Display ID formatting
   let displayId = "NONE";
+  if (callsign && tail) displayId = `${callsign} (${tail})`;
+  else if (callsign) displayId = callsign;
+  else if (tail) displayId = tail;
 
-  if (callsign && tail) {
-    displayId = `${callsign} (${tail})`;
-  } else if (callsign) {
-    displayId = callsign;
-  } else if (tail) {
-    displayId = tail;
-  }
+  // Model/type for header
+  let model =
+    typeDesignator ||
+    getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
 
-  // ---- Model ----
-  let model = typeDesignator || getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
+  if (!model) model = extractAircraftDesignator(narrative, callsign);
+  if (model === "EPIC") model = "EPIC (E1000)";
 
-  if (!model)
-    model = extractAircraftDesignator(narrative, callsign);
-
-  if (model === "EPIC")
-    model = "EPIC (E1000)";
-
-  // ---- Other fields ----
+  // Other fields
   let eventType = getAny(row, ["event_type", "Event type", "type"]);
   let phase = getAny(row, ["phase", "Phase"]);
   let reportDate = getAny(row, ["report_date", "Report"]);
@@ -513,11 +603,31 @@ function toIncident(row) {
   };
 }
 
-function uniqueSorted(arr) {
-  return [...new Set(arr.filter(Boolean))].sort((a,b) => a.localeCompare(b));
+// -------------------- Dropdown helpers (MISSING in your pasted file) --------------------
+
+function fillSelect(selectEl, values, allLabel) {
+  if (!selectEl) return;
+
+  selectEl.innerHTML = "";
+  const optAll = document.createElement("option");
+  optAll.value = "";
+  optAll.textContent = allLabel;
+  selectEl.appendChild(optAll);
+
+  (values || []).forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    selectEl.appendChild(opt);
+  });
 }
 
-/** ---------- Aircraft image helpers ---------- */
+function uniqueSorted(arr) {
+  return [...new Set((arr || []).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+}
+
+// -------------------- Aircraft image helpers --------------------
+
 function buildImageSearchLinks(idValue, model) {
   const links = [];
   const idv = norm(idValue);
@@ -538,10 +648,13 @@ function buildImageSearchLinks(idValue, model) {
   return links;
 }
 
-/** ---------- Render cards ---------- */
+// -------------------- Render cards --------------------
+
 function render() {
+  if (!els.results) return;
+
   els.results.innerHTML = "";
-  els.rowCount.textContent = `Rows detected: ${FILTERED.length}`;
+  if (els.rowCount) els.rowCount.textContent = `Rows detected: ${FILTERED.length}`;
 
   for (const it of FILTERED) {
     const card = document.createElement("article");
@@ -676,13 +789,14 @@ function render() {
   }
 }
 
-/** ---------- Apply filters ---------- */
+// -------------------- Filters --------------------
+
 function applyFilters() {
-  const q = norm(els.search.value).toLowerCase();
-  const st = norm(els.state.value);
-  const ev = norm(els.event.value);
-  const ph = norm(els.phase.value);
-  const sort = norm(els.sort.value);
+  const q = els.search ? norm(els.search.value).toLowerCase() : "";
+  const st = els.state ? norm(els.state.value) : "";
+  const ev = els.event ? norm(els.event.value) : "";
+  const ph = els.phase ? norm(els.phase.value) : "";
+  const sort = els.sort ? norm(els.sort.value) : "newest";
 
   const y = els.year ? norm(els.year.value) : "";
   const m = els.month ? norm(els.month.value) : "";
@@ -699,7 +813,6 @@ function applyFilters() {
       if (y && d.getFullYear() !== Number(y)) return false;
       if (m && d.getMonth() !== Number(m)) return false;
     }
-
     return true;
   });
 
@@ -717,14 +830,20 @@ function applyFilters() {
   render();
 }
 
-/** ---------- Init ---------- */
+// -------------------- Init --------------------
+
 async function init() {
   try {
-    const res = await fetch("./data/incidents.csv", { cache: "no-store" });
-    if (!res.ok) throw new Error("Unable to load CSV");
-    const csvText = await res.text();
+    const csvUrl = new URL("./data/incidents.csv", window.location.href).toString();
+    const res = await fetch(csvUrl, { cache: "no-store" });
 
+    if (!res.ok) {
+      throw new Error(`Unable to load CSV (${res.status} ${res.statusText}) at ${csvUrl}`);
+    }
+
+    const csvText = await res.text();
     const rows = parseCsv(csvText).filter(r => r.length > 1);
+
     if (!rows.length) throw new Error("CSV is empty");
 
     const headers = rows[0].map(h => norm(h));
@@ -748,16 +867,18 @@ async function init() {
       .filter(Boolean)
       .forEach(el => el.addEventListener("change", applyFilters));
 
-    els.status.textContent = "Loaded OK (narrative column: raw_narrative)";
-    els.rowCount.textContent = `Rows detected: ${INCIDENTS.length}`;
+    if (els.status) els.status.textContent = "Loaded OK (narrative column: raw_narrative)";
+    if (els.rowCount) els.rowCount.textContent = `Rows detected: ${INCIDENTS.length}`;
 
     FILTERED = [...INCIDENTS];
     applyFilters();
   } catch (e) {
     console.error(e);
-    els.status.textContent = `Load error: ${e.message || e}`;
+    if (els.status) els.status.textContent = `Load error: ${e.message || e}`;
   }
 }
+
+// -------------------- Download filtered CSV --------------------
 
 function csvEscape(value) {
   const s = (value ?? "").toString();
