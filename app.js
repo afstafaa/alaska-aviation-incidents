@@ -76,6 +76,53 @@ function getAny(obj, keys) {
   return "";
 }
 
+/** ---------- Extraction helpers (fix Unknown tail/model) ---------- */
+
+// US N-number pattern (common practical form)
+// Note: this is a heuristic; it will catch most N-numbers seen in narratives.
+function extractNNumber(text) {
+  const t = norm(text);
+  if (!t) return "";
+
+  // Grab first plausible N-number token (N + 1-5 chars; allow letters/numbers)
+  // Avoid I and O in the tail body sometimes, but many sources still include them; keep permissive.
+  const m = t.toUpperCase().match(/\bN[0-9A-Z]{1,5}\b/);
+  return m ? m[0] : "";
+}
+
+// Extract a likely aircraft designator/model token from narrative.
+// This is a heuristic tuned for your dataset (FAA narratives often contain ICAO-ish codes).
+function extractAircraftDesignator(text) {
+  const t = norm(text);
+  if (!t) return "";
+
+  const U = t.toUpperCase();
+
+  // Common patterns: PC12 / PC-12, C182, PA28, B738, A320, E75L, etc.
+  // Prefer tokens that look like: 1-2 letters + 2-4 digits + optional letter suffix
+  // and also catch hyphenated like PC-12.
+  const hyphen = U.match(/\b([A-Z]{1,3})-([0-9]{1,3}[A-Z]?)\b/);
+  if (hyphen) return `${hyphen[1]}-${hyphen[2]}`;
+
+  const token = U.match(/\b([A-Z]{1,3}[0-9]{2,4}[A-Z]?)\b/);
+  if (token) {
+    // Reduce some false positives: avoid things that are clearly not aircraft types.
+    const bad = new Set(["USC", "FAA", "FSS", "ROCC", "ROK", "ZDV", "ZMA", "CTAF", "IFR", "VFR"]);
+    if (!bad.has(token[1])) return token[1];
+  }
+
+  return "";
+}
+
+// Sometimes the structured tail field contains multiple aircraft like: "N2996C; N6397V; N8241A"
+function pickPrimaryTail(tailField) {
+  const raw = norm(tailField);
+  if (!raw) return "";
+  const parts = raw.split(/[;,\s]+/).map(p => norm(p)).filter(Boolean);
+  const first = parts.find(p => /^N[0-9A-Z]{1,5}$/i.test(p));
+  return first ? first.toUpperCase() : raw;
+}
+
 /** ---------- Time helpers ---------- */
 function tzForState(state) {
   const s = (state || "").toUpperCase();
@@ -247,8 +294,21 @@ function populateYearMonthFilters(rows) {
 function toIncident(row) {
   const state = getAny(row, ["state", "State"]);
 
-  const tail = getAny(row, ["aircraft_primary", "tail_number", "tail", "n_number"]);
-  const model = getAny(row, ["aircraft_primary_model", "aircraft_primary_m", "aircraft_model", "model"]);
+  // Narrative first (we may extract tail/model from it)
+  const rawNarr = getAny(row, ["raw_narrative"]);
+  const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
+  const narrative = rawNarr || narrFallback || "No narrative provided.";
+
+  // Tail/model from columns (preferred), then fallback to narrative extraction
+  let tail = getAny(row, ["aircraft_primary", "tail_number", "tail", "n_number", "n_numbers"]);
+  tail = pickPrimaryTail(tail);
+
+  let model = getAny(row, ["aircraft_primary_model", "aircraft_primary_m", "aircraft_model", "model", "aircraft_type"]);
+
+  // Fallback: extract from narrative if missing
+  if (!tail) tail = extractNNumber(narrative);
+  if (!model) model = extractAircraftDesignator(narrative);
+
   const city = getAny(row, ["city", "location", "loc_city"]);
   const airport = getAny(row, ["airport_code", "airport"]);
   const eventType = getAny(row, ["event_type", "Event type", "type"]);
@@ -264,16 +324,11 @@ function toIncident(row) {
   const eventTimeZ = getAny(row, ["event_time_z", "time_z", "Event time z"]);
   const eventISO = getAny(row, ["event_datetime_z", "datetime_z", "event_datetime", "Event datetime z"]);
 
-  // Narrative
-  const rawNarr = getAny(row, ["raw_narrative"]);
-  const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
-  const narrative = rawNarr || narrFallback || "No narrative provided.";
-
   // Sources / Media / Aircraft image
   const sourcesJson = getAny(row, ["sources_json"]);
   const mediaJson = getAny(row, ["media_json"]);
   const aircraftImageUrl = getAny(row, ["aircraft_image_url"]);
-  const aircraftImageType = getAny(row, ["aircraft_image_type"]); // actual | similar
+  const aircraftImageType = getAny(row, ["aircraft_image_type"]); // actual | similar (generic)
 
   const localTime = formatLocalFromISO(eventISO, state);
 
@@ -290,11 +345,15 @@ function toIncident(row) {
     eventDate, eventTimeZ, narrative, sourcesJson, mediaJson, aircraftImageUrl, aircraftImageType,
   ].join(" ").toLowerCase();
 
+  // Display labels: never “Unknown aircraft” if we have anything useful
+  const displayTail = tail || "Unknown tail";
+  const displayModel = model || "Unknown model";
+
   return {
     ...row,
     _state: state,
-    _tail: tail || "Unknown aircraft",
-    _model: model || "Unknown model",
+    _tail: displayTail,
+    _model: displayModel,
     _city: city,
     _airport: airport,
     _eventType: eventType || "",
@@ -314,7 +373,7 @@ function toIncident(row) {
     _sources: safeParseJsonArray(sourcesJson),
     _media: safeParseJsonArray(mediaJson),
     _aircraftImageUrl: aircraftImageUrl || "",
-    _aircraftImageType: (aircraftImageType || "").toLowerCase(),
+    _aircraftImageType: (aircraftImageType || "").toLowerCase(), // "actual" | "similar"
   };
 }
 
@@ -336,6 +395,31 @@ function fillSelect(selectEl, values, allLabel) {
 
 function uniqueSorted(arr) {
   return [...new Set(arr.filter(Boolean))].sort((a,b) => a.localeCompare(b));
+}
+
+/** ---------- Aircraft image helpers ---------- */
+function buildImageSearchLinks(tail, model) {
+  // Uses DuckDuckGo image search (no API key; works well for quick lookup)
+  const links = [];
+
+  const t = norm(tail);
+  const m = norm(model);
+
+  if (t && !t.toLowerCase().includes("unknown")) {
+    links.push({
+      label: `Search photos for ${t} (actual)`,
+      url: `https://duckduckgo.com/?q=${encodeURIComponent(t + " aircraft photo")}&iax=images&ia=images`,
+    });
+  }
+
+  if (m && !m.toLowerCase().includes("unknown")) {
+    links.push({
+      label: `Search photos for ${m} (generic type)`,
+      url: `https://duckduckgo.com/?q=${encodeURIComponent(m + " aircraft")}&iax=images&ia=images`,
+    });
+  }
+
+  return links;
 }
 
 /** ---------- Render cards ---------- */
@@ -392,23 +476,46 @@ function render() {
     const imgUrl = norm(it._aircraftImageUrl);
     const imgType = (it._aircraftImageType || "").toLowerCase();
 
-    if (!imgUrl) {
-      const none = document.createElement("div");
-      none.className = "noneText";
-      none.textContent = "None";
-      imgWrap.appendChild(none);
-    } else {
+    if (imgUrl) {
       const a = document.createElement("a");
       a.href = imgUrl;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
 
-      const label = (imgType === "actual") ? "Actual Image"
-                  : (imgType === "similar") ? "Similar Aircraft"
-                  : "Aircraft Image";
+      // Per your rule:
+      // - aircraft_image = actual image
+      // - aircraft_image_type = generic image if actual image not available
+      const label =
+        (imgType === "actual") ? "Actual Image" :
+        (imgType === "similar") ? "Generic Type Image" :
+        "Aircraft Image";
 
       a.textContent = `View (${label})`;
       imgWrap.appendChild(a);
+    } else {
+      // No stored image → provide search links (actual by tail + generic by type)
+      const links = buildImageSearchLinks(it._tail, it._model);
+
+      if (!links.length) {
+        const none = document.createElement("div");
+        none.className = "noneText";
+        none.textContent = "None";
+        imgWrap.appendChild(none);
+      } else {
+        const ul = document.createElement("ul");
+        ul.className = "linkList";
+        links.forEach(l => {
+          const li = document.createElement("li");
+          const a = document.createElement("a");
+          a.href = l.url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.textContent = l.label;
+          li.appendChild(a);
+          ul.appendChild(li);
+        });
+        imgWrap.appendChild(ul);
+      }
     }
 
     const imgSection = mkLabeledSection("Aircraft Image", imgWrap);
