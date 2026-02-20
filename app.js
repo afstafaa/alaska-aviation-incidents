@@ -83,17 +83,30 @@ function extractNNumber(text) {
 function extractCallsign(text) {
   const t = norm(text).toUpperCase();
   if (!t) return "";
-  // Common WSA format: "), (HHR), WSN2, ..."
-  let m = t.match(/\)\s*,\s*([A-Z]{2,4}\d{1,4})\b/);
-  if (m && !m[1].startsWith("N")) return m[1];
 
-  // Or comma-separated: ", WSN2,"
-  m = t.match(/,\s*([A-Z]{2,4}\d{1,4})\s*,/);
-  if (m && !m[1].startsWith("N")) return m[1];
+  const reject = (cs) => {
+    if (!cs) return true;
+    if (!/\d/.test(cs)) return true;          // must contain a digit
+    if (cs.startsWith("RWY")) return true;     // RWY11
+    if (cs.startsWith("GATE")) return true;
+    return false;
+  };
 
-  // Or leading token
+  // common commas: ", UAL1871, B738."
+  let m = t.match(/,\s*([A-Z]{2,4}\d{1,4})\s*,/);
+  if (m && !reject(m[1])) return m[1];
+
+  // after parens: "..., (HHR), WSN2, KING-AIR B350."
+  m = t.match(/\)\s*,\s*([A-Z]{2,4}\d{1,4})\b/);
+  if (m && !reject(m[1])) return m[1];
+
+  // inside parens sometimes: "(JBU2233)"
+  m = t.match(/\(\s*([A-Z]{2,4}\d{1,4})\s*\)/);
+  if (m && !reject(m[1])) return m[1];
+
+  // leading token
   m = t.match(/^\(?([A-Z]{2,4}\d{1,4})\b/);
-  if (m && !m[1].startsWith("N")) return m[1];
+  if (m && !reject(m[1])) return m[1];
 
   return "";
 }
@@ -102,29 +115,51 @@ function extractAircraftDesignator(text, callsign = "") {
   const U = norm(text).toUpperCase();
   if (!U) return "";
 
-  // Slash form: N98FK/EPIC
+  // EPIC special case (and keep EPIC displayed as EPIC (E1000) later)
+  if (U.includes("/EPIC") || U.includes(" EPIC")) return "EPIC";
+
+  // Explicit slash form: N98FK/EPIC or N123AB/TYPE
   let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9-]{2,10})\b/);
   if (m) return m[1];
 
-  // If callsign present, grab a token like B350 after it
+  // If callsign is known, try to capture a token AFTER callsign (best for UAL1871, B738 / WSN2, B350)
   if (callsign) {
-    m = U.match(new RegExp(`\\b${callsign}\\b.*?\\b([A-Z]{1,3}-?\\d{2,4}[A-Z]?)\\b`));
-    if (m) return m[1];
+    const re = new RegExp(`\\b${callsign}\\b[^\\n\\r]{0,60}?\\b([A-Z]{1,3}-?\\d{2,4}[A-Z]?)\\b`);
+    m = U.match(re);
+    if (m && !isBadTypeToken(m[1], U)) return m[1];
   }
 
-  // Hyphenated like PC-12
-  m = U.match(/\b([A-Z]{1,3})-([0-9]{1,3}[A-Z]?)\b/);
-  if (m) return `${m[1]}-${m[2]}`;
+  // Otherwise, scan for ALL candidates and pick the best non-bad one
+  const candidates = [...U.matchAll(/\b([A-Z]{1,3}-?\d{2,4}[A-Z]?)\b/g)].map(x => x[1]);
 
-  // General token like B350, E75L, C182
-  const bad = new Set(["FAA","FSS","IFR","VFR","CTAF","SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY","HHR","SBS","ALNOT","RNAV"]);
-  const token = U.match(/\b([A-Z]{1,3}-?\d{2,4}[A-Z]?)\b/);
-  if (token && !bad.has(token[1]) && !token[1].startsWith("N")) return token[1];
-
-  // Word-based fallback
-  if (U.includes(" EPIC")) return "EPIC";
-
+  for (const c of candidates) {
+    if (!isBadTypeToken(c, U)) return c;
+  }
   return "";
+}
+
+function isBadTypeToken(token, fullText) {
+  const t = token.toUpperCase();
+
+  // Reject runway-like tokens
+  if (t.startsWith("RWY")) return true;
+
+  // Reject airport identifiers in location form: "WALDPORT, OR (R33)"
+  // Common: (R33) where token is 1 letter + 2-3 digits
+  if (/^[A-Z]\d{2,3}$/.test(t) && new RegExp(`\\(\\s*${t}\\s*\\)`).test(fullText)) return true;
+
+  // Common non-type junk seen in FAA narratives
+  const bad = new Set([
+    "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV",
+    "SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY",
+    "LAX","SFO","HHR","SBS"
+  ]);
+  if (bad.has(t)) return true;
+
+  // Also reject obvious tail-like Nnumbers masquerading
+  if (t.startsWith("N")) return true;
+
+  return false;
 }
 
 function extractFieldFromNarrative(narr, label) {
@@ -358,23 +393,34 @@ function toIncident(row) {
   const narrFallback = getAny(row, ["narrative", "Narrative", "context_parens", "raw_text"]);
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
-  // NEW SCHEMA FIELDS
-  let callsign = getAny(row, ["callsign_primary"]);
-  let typeDesignator = getAny(row, ["aircraft_type_designator"]);
+ // NEW SCHEMA FIELDS
+let callsign = getAny(row, ["callsign_primary"]);
+let typeDesignator = getAny(row, ["aircraft_type_designator"]);
 
-  // Tail first (true N-number fields), then narrative
-  let tail = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
-  tail = pickPrimaryTail(tail);
-  if (!tail) tail = extractNNumber(narrative);
+// Tail first (true N-number fields), then narrative
+let tail = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
+tail = pickPrimaryTail(tail);
+if (!tail) tail = extractNNumber(narrative);
 
-  // Callsign fallback (if schema empty)
-  if (!callsign) callsign = extractCallsign(narrative);
+// Callsign fallback (if schema empty)
+if (!callsign) callsign = extractCallsign(narrative);
 
-  // Type/designator fallback (if schema empty)
-  if (!typeDesignator) typeDesignator = extractAircraftDesignator(narrative, callsign);
+// Type/designator fallback (if schema empty)
 
-  // Display ID: tail if present, else callsign if present
-  const displayId = tail || callsign || "Unknown ID";
+// Display ID format you want:
+// - If callsign exists: CALLSIGN (TAIL) or CALLSIGN
+// - Else if tail exists: TAIL
+// - Else: NONE
+const displayId = callsign
+  ? (tail ? `${callsign} (${tail})` : callsign)
+  : (tail ? tail : "NONE");
+
+// Model/type for header: typeDesignator first, else model field, else inferred
+let model = typeDesignator || getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
+if (!model) model = extractAircraftDesignator(narrative, callsign);
+
+// EPIC display tweak
+const modelDisplay = (model === "EPIC") ? "EPIC (E1000)" : model;
 
   // Model/type for header: typeDesignator first, else model field, else inferred
   let model = typeDesignator || getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
