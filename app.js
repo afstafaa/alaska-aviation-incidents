@@ -407,24 +407,19 @@ function toIncident(row) {
   let callsign = getAny(row, ["callsign_primary"]);
   let typeDesignator = getAny(row, ["aircraft_type_designator"]);
 
-  // ---- Tail (strict N-number only) ----
+  // ---- Tail ----
   let tail = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
-  tail = isValidNNumber(tail) ? tail.toUpperCase() : "";
+  tail = pickPrimaryTail(tail);
   if (!tail) tail = extractNNumber(narrative);
 
   // ---- Callsign fallback ----
-  callsign = isValidCallsign(callsign) ? callsign.toUpperCase() : "";
   if (!callsign) callsign = extractCallsign(narrative);
 
   // ---- Type fallback ----
-  typeDesignator = isValidTypeDesignator(typeDesignator, narrative, callsign)
-    ? typeDesignator.toUpperCase()
-    : "";
-
   if (!typeDesignator)
     typeDesignator = extractAircraftDesignator(narrative, callsign);
 
-  // ---- Build display ID ----
+  // ---- Display ID ----
   let displayId = "NONE";
 
   if (callsign && tail) {
@@ -435,7 +430,7 @@ function toIncident(row) {
     displayId = tail;
   }
 
-  // ---- Model/type for header ----
+  // ---- Model ----
   let model =
     typeDesignator ||
     getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
@@ -524,6 +519,7 @@ function toIncident(row) {
     _aircraftImageType: (aircraftImageType || "").toLowerCase(),
   };
 }
+
 function uniqueSorted(arr) {
   return [...new Set(arr.filter(Boolean))].sort((a,b) => a.localeCompare(b));
 }
