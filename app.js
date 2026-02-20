@@ -161,44 +161,64 @@ function extractCallsign(text) {
 }
 
 function extractAircraftDesignator(text, callsign = "") {
-  const U0 = norm(text).toUpperCase();
-  if (!U0) return "";
+  const U = norm(text).toUpperCase();
+  if (!U) return "";
 
-  const cs = norm(callsign).toUpperCase();
-  const U = U0;
+  // ----- PRIORITY KEYWORDS -----
+  if (U.includes("EXPERIMENTAL")) return "EXPERIMENTAL";
+  if (U.includes("ULTRA-LIGHT") || U.includes("ULTRALIGHT")) return "ULTRALIGHT";
+  if (U.includes("SPORTCRUISER")) return "SPORTCRUISER";
+  if (U.includes("TBM7")) return "TBM7";
 
-  // EPIC special case (you want EPIC (E1000) display later)
+  // EPIC special case
   if (U.includes("/EPIC") || U.includes(" EPIC")) return "EPIC";
 
-  // Hyphenated forms like PC-12 -> PC12 (common narrative style)
-  const hy = U.match(/\b([A-Z]{1,2})-(\d{1,3}[A-Z]?)\b/);
-  if (hy) {
-    const cand = (hy[1] + hy[2]).toUpperCase();
-    if (isValidTypeDesignator(cand, U, cs)) return cand;
-  }
+  // Slash format: N98FK/EPIC
+  let m = U.match(/\bN[0-9A-Z]{1,5}\s*\/\s*([A-Z][A-Z0-9-]{2,10})\b/);
+  if (m) return m[1];
 
-  // Slash form: N98FK/EPIC
-  let m = U.match(/\bN[1-9][0-9A-Z]{0,4}\s*\/\s*([A-Z][A-Z0-9]{1,3})\b/);
-  if (m && isValidTypeDesignator(m[1], U, cs)) return m[1];
+  // State codes to block
+  const states = new Set([
+    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN",
+    "IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV",
+    "NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN",
+    "TX","UT","VT","VA","WA","WV","WI","WY"
+  ]);
 
-  // Callsign anchored: UAL1871 ... B738  OR  WSN2 ... B350
-  if (cs) {
-    const re = new RegExp(`\\b${cs}\\b[^\\n\\r]{0,80}?\\b([A-Z][A-Z0-9]{1,3})\\b`);
-    m = U.match(re);
-    if (m && isValidTypeDesignator(m[1], U, cs)) return m[1];
-  }
+  // System codes to block
+  const badCodes = new Set([
+    "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV",
+    "SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY"
+  ]);
 
-  // General scan: only consider 2–4 char ICAO-like tokens
-  const candidates = [...U.matchAll(/\b([A-Z][A-Z0-9]{1,3})\b/g)].map(x => x[1]);
+  // General candidate scan
+  const candidates = [...U.matchAll(/\b([A-Z0-9-]{2,8})\b/g)]
+    .map(x => x[1]);
 
   for (const c of candidates) {
-    if (cs && c === cs) continue;
-    if (isValidTypeDesignator(c, U, cs)) return c;
-  }
 
-  // Experimental inference
-  if (U.includes("EXPERIMENTAL") || U.includes("UNREGISTERED") || U.includes("ULTRALIGHT") || U.includes("ULTRA-LIGHT")) {
-    return "EXPERIMENTAL";
+    if (!c) continue;
+    if (c === callsign) continue;
+
+    // Reject runway
+    if (/^RWY\d+/.test(c)) continue;
+
+    // Reject N-numbers
+    if (/^N[0-9A-Z]+$/.test(c)) continue;
+
+    // Reject 3–4 letter airport codes (PDX, SFO, FSOC, etc.)
+    if (/^[A-Z]{3,4}$/.test(c)) continue;
+
+    // Reject state abbreviations
+    if (states.has(c)) continue;
+
+    // Reject system codes
+    if (badCodes.has(c)) continue;
+
+    // Must contain at least one digit to be valid ICAO type
+    if (!/\d/.test(c)) continue;
+
+    return c;
   }
 
   return "";
