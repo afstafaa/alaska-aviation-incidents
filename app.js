@@ -140,6 +140,8 @@ function extractAircraftDesignator(text, callsign = "") {
   for (const c of candidates) {
     if (callsign && c === callsign) continue;
     if (!isBadTypeToken(c, U, callsign)) return c;
+
+return "";
   }
 
   // Special case for experimental narrative
@@ -484,7 +486,7 @@ if (model === "EPIC") model = "EPIC (E1000)";
     : (line2Left || "Unknown location • Unknown date");
 
   const haystack = [
-    displayId, tail, callsign, modelDisplay, typeDesignator, city, state, airport, eventType, phase,
+    displayId, tail, callsign, model, typeDesignator, city, state, airport, eventType, phase,
     reportDate, pob, injuries, damage, form8020,
     eventDate, eventTimeZ, narrative, sourcesJson, mediaJson, aircraftImageUrl, aircraftImageType,
   ].join(" ").toLowerCase();
