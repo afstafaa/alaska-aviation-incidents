@@ -732,10 +732,6 @@ const imgSection = mkLabeledSection("Aircraft Image", imgWrap);
 imgSection.classList.add("onlyExpanded");
 narrText.appendChild(imgSection);
 
-    const imgSection = mkLabeledSection("Aircraft Image", imgWrap);
-    imgSection.classList.add("onlyExpanded");
-    narrText.appendChild(imgSection);
-
     const btn = document.createElement("button");
     btn.className = "expandBtn";
     btn.type = "button";
