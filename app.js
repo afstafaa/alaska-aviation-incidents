@@ -629,7 +629,7 @@ function uniqueSorted(arr) {
 
 // -------------------- Aircraft image helpers --------------------
 
- {
+  function buildImageSearchLinks(idValue, model) {
   const links = [];
   const idv = norm(idValue);
   const m = norm(model);
