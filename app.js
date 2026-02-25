@@ -845,7 +845,15 @@ async function init() {
       return obj;
     });
 
-    INCIDENTS = objects.map(toIncident);
+    INCIDENTS = objects
+  .map(toIncident)
+  .filter(it => {
+    // keep only real rows
+    const hasNarr = norm(it._narrative) && it._narrative !== "No narrative provided.";
+    const hasId = norm(it._callsign) || norm(it._tail) && it._tail !== "NONE";
+    const hasDate = norm(it._eventISO) || norm(it._eventDate);
+    return hasNarr || hasId || hasDate;
+  });
 
     populateYearMonthFilters(INCIDENTS);
     fillSelect(els.state, uniqueSorted(INCIDENTS.map(x => x._state)), "All states");
