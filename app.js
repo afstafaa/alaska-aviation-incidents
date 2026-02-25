@@ -502,7 +502,7 @@ function toIncident(row) {
   callsign = isValidCallsign(callsign) ? callsign.toUpperCase() : "";
   if (!callsign) callsign = extractCallsign(narrative);
 
-  let typeDesignator = getAny(row, ["aircraft_type_designator"]);
+  let typeDesignator = getAny(row, ["aircraft_type_designator", "aircraft_type_desi", "aircraft_primary_model"]);
   typeDesignator = isValidTypeDesignator(typeDesignator, narrative, callsign) ? typeDesignator.toUpperCase() : "";
   if (!typeDesignator) typeDesignator = extractAircraftDesignator(narrative, callsign);
 
@@ -519,8 +519,8 @@ function toIncident(row) {
 
   // Model/type for header
   let model =
-    typeDesignator ||
-    getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]);
+  getAny(row, ["aircraft_primary_model", "aircraft_model", "model", "aircraft_type"]) ||
+  typeDesignator;
 
   if (!model) model = extractAircraftDesignator(narrative, callsign);
   if (model === "EPIC") model = "EPIC (E1000)";
