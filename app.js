@@ -696,14 +696,24 @@ function render() {
     narrText.appendChild(mediaSection);
 
     // Aircraft Image (single link, labeled by type; hide for EXPERIMENTAL)
+// Aircraft Image (single link, labeled by type; hide for EXPERIMENTAL)
 const imgWrap = document.createElement("div");
 imgWrap.className = "onlyExpanded";
 
 const imgUrl = norm(it._aircraftImageUrl);
 const imgType = (it._aircraftImageType || "").toLowerCase();
-const typeDes = (it._typeDesignator || "").toUpperCase();
 
-if (typeDes === "EXPERIMENTAL") {
+const typeDes = (it._typeDesignator || "").toUpperCase();
+const modelUp = (it._model || "").toUpperCase();
+const narrUp  = (it._narrative || "").toUpperCase();
+
+// EXPERIMENTAL rule: hide images completely (even if CSV provides a link)
+const isExperimental =
+  typeDes === "EXPERIMENTAL" ||
+  modelUp === "EXPERIMENTAL" ||
+  narrUp.includes("EXPERIMENTAL");
+
+if (isExperimental) {
   const none = document.createElement("div");
   none.className = "noneText";
   none.textContent = "None";
@@ -714,7 +724,6 @@ if (typeDes === "EXPERIMENTAL") {
   a.target = "_blank";
   a.rel = "noopener noreferrer";
 
-  // Label rules
   let label = "Search photos";
   if (imgType === "actual_search") label = "Search photos (tail)";
   if (imgType === "generic_search") label = "Search photos (type)";
