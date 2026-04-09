@@ -68,10 +68,19 @@ function getAny(obj, keys) {
 function isValidCallsign(value) {
   const t = norm(value).toUpperCase();
   if (!t) return false;
-  if (!/\d/.test(t)) return false;               // reject NO / NOT
+  if (!/\d/.test(t)) return false;   // must include a digit
   if (t.startsWith("RWY") || t.startsWith("GATE")) return false;
-  // typical ops callsigns in your narratives: UAL1871, JBU2233, SKW3905, WSN2
-  return /^[A-Z]{2,4}\d{1,4}$/.test(t);
+
+  // allow airline + military + ops callsigns:
+  // UAL1871, JBU2233, WSN2, TBIRD05, JOUST97, BLACKJACK01
+  if (!/^[A-Z]{2,10}\d{1,4}[A-Z]?$/.test(t)) return false;
+
+  const bad = new Set([
+    "FAA","FSS","IFR","VFR","CTAF","ALNOT","RNAV","SCT","ZDV","ZAN","ZSE","ZLA","ZMA","ZNY"
+  ]);
+  if (bad.has(t)) return false;
+
+  return true;
 }
 
 function isValidNNumber(value) {
@@ -498,7 +507,7 @@ function toIncident(row) {
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
   // Schema fields (sanitized before use)
-  let callsign = getAny(row, ["callsign_primary"]);
+  let callsign = getAny(row, ["callsign_primary", "aircraft_primary"]);
   callsign = isValidCallsign(callsign) ? callsign.toUpperCase() : "";
   if (!callsign) callsign = extractCallsign(narrative);
 
@@ -510,6 +519,11 @@ function toIncident(row) {
   let tailField = getAny(row, ["n_numbers", "tail_number", "tail", "n_number", "registration"]);
   let tail = pickPrimaryTail(tailField);
   if (!tail) tail = extractNNumber(narrative);
+
+  // if "n_numbers" actually contains a callsign-only value, don't lose it
+  if (!callsign && isValidCallsign(tailField)) {
+  callsign = norm(tailField).toUpperCase();
+}
 
   // Display ID formatting
   let displayId = "NONE";
