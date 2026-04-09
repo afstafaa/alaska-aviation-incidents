@@ -150,21 +150,17 @@ function extractCallsign(text) {
   const t = norm(text).toUpperCase();
   if (!t) return "";
 
-  // common commas: ", UAL1871, B738."
-  let m = t.match(/,\s*([A-Z]{2,4}\d{1,4})\s*,/);
-  if (m && isValidCallsign(m[1])) return m[1];
+  const patterns = [
+    /,\s*([A-Z]{2,10}\d{1,4}[A-Z]?)\s*,/,      // ", TBIRD05,"
+    /\)\s*,\s*([A-Z]{2,10}\d{1,4}[A-Z]?)\b/,   // "), TBIRD05"
+    /\(\s*([A-Z]{2,10}\d{1,4}[A-Z]?)\s*\)/,    // "(TBIRD05)"
+    /^\(?([A-Z]{2,10}\d{1,4}[A-Z]?)\b/,        // leading token
+  ];
 
-  // after parens: "..., (HHR), WSN2, KING-AIR B350."
-  m = t.match(/\)\s*,\s*([A-Z]{2,4}\d{1,4})\b/);
-  if (m && isValidCallsign(m[1])) return m[1];
-
-  // inside parens sometimes: "(JBU2233)"
-  m = t.match(/\(\s*([A-Z]{2,4}\d{1,4})\s*\)/);
-  if (m && isValidCallsign(m[1])) return m[1];
-
-  // leading token
-  m = t.match(/^\(?([A-Z]{2,4}\d{1,4})\b/);
-  if (m && isValidCallsign(m[1])) return m[1];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (m && isValidCallsign(m[1])) return m[1];
+  }
 
   return "";
 }
@@ -507,7 +503,7 @@ function toIncident(row) {
   const narrative = rawNarr || narrFallback || "No narrative provided.";
 
   // Schema fields (sanitized before use)
-  let callsign = getAny(row, ["callsign_primary", "aircraft_primary"]);
+  let callsign = getAny(row, ["callsign_primary", "aircraft_primary", "callsign"]);
   callsign = isValidCallsign(callsign) ? callsign.toUpperCase() : "";
   if (!callsign) callsign = extractCallsign(narrative);
 
